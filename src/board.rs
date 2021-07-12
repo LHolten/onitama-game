@@ -5,7 +5,7 @@ use dominator::{
     events::MouseDown,
     html, svg,
 };
-use futures_signals::signal::{Mutable, SignalExt};
+use futures_signals::signal::{Mutable, Signal, SignalExt};
 use once_cell::sync::Lazy;
 
 use crate::{
@@ -29,6 +29,7 @@ pub enum Player {
 #[derive(Clone, Copy, PartialEq)]
 pub struct Piece(pub Player, pub PieceKind);
 
+#[derive(Clone, Copy, PartialEq)]
 pub enum Overlay {
     Highlight,
     Dot,
@@ -63,7 +64,6 @@ impl App {
         });
 
         let selected = self.selected.clone();
-        let (card1, card2) = (self.cards[0].clone(), self.cards[1].clone());
 
         html!("span", {
             .class(if pos % 2 == 1 {
@@ -73,7 +73,7 @@ impl App {
             })
             .event(move |_: MouseDown|{
                 let s = selected.get();
-                if s.is_some() && s.unwrap() == pos{
+                if s == Some(pos) {
                     selected.set(None)
                 } else {
                     selected.set(Some(pos));
@@ -86,37 +86,37 @@ impl App {
                         dom = dom.child(html!("img", {
                             .class(&*OVERLAY_CLASS)
                             .visible_signal(
-                                self.board[pos].signal_ref(move |p|p.is_some() && p.unwrap() == piece)
+                                self.board[pos].signal().map(move |p|p == Some(piece))
                             )
                             .apply(|dom|piece.render(dom))
                         }))
                     }
                 };
+                for overlay in [Overlay::Highlight, Overlay::Dot] {
+                    dom = dom.child(svg!("svg", {
+                        .class(&*OVERLAY_CLASS)
+                        .visible_signal(
+                            self.get_overlay(pos).map(move |o|o==Some(overlay))
+                        )
+                        .apply(|dom|overlay.render(dom))
+                    }))
+                }
                 dom
             })
-            .child(svg!("svg", {
-                .class(&*OVERLAY_CLASS)
-                .visible_signal(
-                    self.selected
-                        .signal_ref(move |from| from.map(|from| from == pos).unwrap_or(false))
-                        .dedupe()
-                )
-                .apply(|dom|Overlay::Highlight.render(dom))
-            }))
-            .child(svg!("svg", {
-                .class(&*OVERLAY_CLASS)
-                .visible_signal(self.selected.signal_ref(move |from| {
-                    from.map(|from| {
-                        get_offset(pos, from)
-                            .map(|offset| {
-                                in_card(offset, card1.get()) || in_card(offset, card2.get())
-                            })
-                            .unwrap_or(false)
-                    })
-                    .unwrap_or(false)
-                }).dedupe())
-                .apply(|dom|Overlay::Dot.render(dom))
-            }))
+        })
+    }
+
+    fn get_overlay(&self, pos: usize) -> impl Signal<Item = Option<Overlay>> {
+        let (card1, card2) = (self.cards[0].clone(), self.cards[1].clone());
+        self.selected.signal_ref(move |&from| {
+            let offset = get_offset(pos, from?)?;
+            if offset == 12 {
+                Some(Overlay::Highlight)
+            } else if in_card(offset, card1.get()) || in_card(offset, card2.get()) {
+                Some(Overlay::Dot)
+            } else {
+                None
+            }
         })
     }
 }
