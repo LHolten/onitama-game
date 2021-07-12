@@ -1,8 +1,12 @@
 use dominator::{class, events::MouseDown, html, svg, Dom};
-use futures_signals::signal::Mutable;
+use futures_signals::signal::{Mutable, SignalExt};
 use once_cell::sync::Lazy;
 
-use crate::render::{Render, RenderOpt};
+use crate::{
+    position::{get_offset, in_card},
+    render::{Render, RenderOpt},
+    App,
+};
 
 pub enum PieceKind {
     Pawn,
@@ -47,48 +51,8 @@ impl Render for Piece {
     }
 }
 
-fn overlay_render(pos: usize, selected: Mutable<Option<usize>>) -> Dom {
-    html!("div", {
-        .class(&*OVERLAY_CLASS)
-        .child(svg!("svg", {
-            .class(&*OVERLAY_CLASS)
-            .visible_signal(selected.signal_ref(move |selected| {
-                selected.map(|s| s==pos).unwrap_or(false)
-            }))
-            .attr("width", "80")
-            .attr("height", "80")
-            .attr("viewBox", "0 0 1 1")
-            .child(svg!("rect", {
-                .attr("fill", "none")
-                .attr("stroke", "green")
-                .attr("stroke-width", "0.1")
-                .attr("width", "1")
-                .attr("height", "1")
-                .attr("stroke-dasharray", "0.5")
-                .attr("stroke-dashoffset", "0.25")
-                .attr("stroke-opacity", "0.5")
-            }))
-        }))
-        .child(svg!("svg", {
-            .class(&*OVERLAY_CLASS)
-            .visible(false)
-            // .visible_signal(selected.signal_ref(|overlay| {
-            //     matches!(overlay, Some(Overlay::Dot))
-            // }))
-            .attr("width", "80")
-            .attr("height", "80")
-            .attr("viewBox", "-1 -1 2 2")
-            .child(svg!("circle", {
-                .attr("r", "0.25")
-                .attr("fill", "green")
-                .attr("fill-opacity", "0.5")
-            }))
-        }))
-    })
-}
-
-impl Square {
-    pub fn render(&self, pos: usize, selected: Mutable<Option<usize>>) -> Dom {
+impl App {
+    pub fn render_square(&self, pos: usize) -> Dom {
         static SPAN_DARK: Lazy<String> = Lazy::new(|| {
             class! {
                 .style("display", "inline-block")
@@ -109,14 +73,16 @@ impl Square {
             }
         });
 
+        let selected = self.selected.clone();
+
         html!("span", {
             .class(if pos % 2 == 1 {
                 &*SPAN_DARK
             } else {
                 &*SPAN_LIGHT
             })
-            .child(overlay_render(pos, selected.clone()))
-            .child_signal(self.0.signal_ref(RenderOpt::render_opt))
+            .child(self.render_overlay(pos))
+            .child_signal(self.board[pos].0.signal_ref(RenderOpt::render_opt))
             .event(move |_: MouseDown|{
                 let s = selected.get();
                 if s.is_some() && s.unwrap() == pos{
@@ -125,6 +91,52 @@ impl Square {
                     selected.set(Some(pos));
                 }
             })
+        })
+    }
+
+    fn render_overlay(&self, pos: usize) -> Dom {
+        let (card1, card2) = (self.cards[0].clone(), self.cards[1].clone());
+
+        html!("div", {
+            .class(&*OVERLAY_CLASS)
+            .child(svg!("svg", {
+                .class(&*OVERLAY_CLASS)
+                .visible_signal(self.selected.signal_ref(move |from| {
+                    from.map(|from| from==pos).unwrap_or(false)
+                }).dedupe())
+                .attr("width", "80")
+                .attr("height", "80")
+                .attr("viewBox", "0 0 1 1")
+                .child(svg!("rect", {
+                    .attr("fill", "none")
+                    .attr("stroke", "green")
+                    .attr("stroke-width", "0.1")
+                    .attr("width", "1")
+                    .attr("height", "1")
+                    .attr("stroke-dasharray", "0.5")
+                    .attr("stroke-dashoffset", "0.25")
+                    .attr("stroke-opacity", "0.5")
+                }))
+            }))
+            .child(svg!("svg", {
+                .class(&*OVERLAY_CLASS)
+                .visible(false)
+                .visible_signal(self.selected.signal_ref(move |from| {
+                    from.map(|from| {
+                        get_offset(pos, from).map(|offset|{
+                            in_card(offset, card1.get()) || in_card(offset, card2.get())
+                        }).unwrap_or(false)
+                    }).unwrap_or(false)
+                }))
+                .attr("width", "80")
+                .attr("height", "80")
+                .attr("viewBox", "-1 -1 2 2")
+                .child(svg!("circle", {
+                    .attr("r", "0.25")
+                    .attr("fill", "green")
+                    .attr("fill-opacity", "0.5")
+                }))
+            }))
         })
     }
 }

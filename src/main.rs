@@ -1,4 +1,5 @@
 mod board;
+mod position;
 mod render;
 
 use dominator::{class, clone, events, html, text, Dom};
@@ -12,9 +13,9 @@ use crate::{
 };
 // use wasm_bindgen::prelude::*;
 
-struct App {
+pub struct App {
     board: Arc<Vec<Square>>,
-    cards: Vec<Mutable<String>>,
+    cards: Vec<Mutable<usize>>, // things that depend on this are updated  with "selected"
     selected: Mutable<Option<usize>>,
 }
 
@@ -29,20 +30,12 @@ impl App {
         }
         Self {
             board: Arc::new(board),
-            cards: Vec::new(),
+            cards: vec![Mutable::new(0), Mutable::new(1)],
             selected: Mutable::new(None),
         }
     }
 
     fn render(self) -> Dom {
-        // static ROOT_CLASS: Lazy<String> = Lazy::new(|| {
-        //     class! {
-        //         .style("display", "inline-block")
-        //         .style("background-color", "black")
-        //         .style("padding", "10px")
-        //     }
-        // });
-
         html!("div", {
             .class(class! {
                 .style("display", "flex")
@@ -59,49 +52,12 @@ impl App {
                 .children((0..5).map(|y|{
                     html!("div", {
                         .children((0..5).map(|x|{
-                            self.board[y * 5 + x].render(y * 5 + x, self.selected.clone())
+                            self.render_square(y * 5 + x)
                         }))
                     })
                 }))
             }))
         })
-
-        // Overlay::Dot.render()
-        // Piece(Player::Black, PieceKind::Pawn).render()
-
-        // .children(&mut [
-        //     html!("div", {
-        //         .class(&*TEXT_CLASS)
-        //         .text_signal(state.counter.signal().map(|x| format!("Counter: {}", x)))
-        //     }),
-
-        //     html!("button", {
-        //         .class(&*BUTTON_CLASS)
-        //         .text("Increase")
-        //         .event(clone!(state => move |_: events::Click| {
-        //             // Increment the counter
-        //             state.counter.replace_with(|x| *x + 1);
-        //         }))
-        //     }),
-
-        //     html!("button", {
-        //         .class(&*BUTTON_CLASS)
-        //         .text("Decrease")
-        //         .event(clone!(state => move |_: events::Click| {
-        //             // Decrement the counter
-        //             state.counter.replace_with(|x| *x - 1);
-        //         }))
-        //     }),
-
-        //     html!("button", {
-        //         .class(&*BUTTON_CLASS)
-        //         .text("Reset")
-        //         .event(clone!(state => move |_: events::Click| {
-        //             // Reset the counter to 0
-        //             state.counter.set_neq(0);
-        //         }))
-        //     }),
-        // ])
     }
 }
 
