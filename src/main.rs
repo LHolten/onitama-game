@@ -1,5 +1,5 @@
 mod board;
-mod position;
+mod card;
 mod render;
 
 use dominator::{class, clone, events, html, text, Dom};

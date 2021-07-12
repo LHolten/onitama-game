@@ -9,7 +9,7 @@ use futures_signals::signal::{Mutable, Signal, SignalExt};
 use once_cell::sync::Lazy;
 
 use crate::{
-    position::{get_offset, in_card},
+    card::{get_offset, in_card},
     render::{Render, RenderOpt},
     App,
 };
@@ -64,6 +64,7 @@ impl App {
         });
 
         let selected = self.selected.clone();
+        let square = self.board[pos].clone();
 
         html!("span", {
             .class(if pos % 2 == 1 {
@@ -73,10 +74,11 @@ impl App {
             })
             .event(move |_: MouseDown|{
                 let s = selected.get();
-                if s == Some(pos) {
-                    selected.set(None)
-                } else {
+                let square = square.get();
+                if s != Some(pos) && square.is_some() && square.unwrap().0 == Player::White {
                     selected.set(Some(pos));
+                } else {
+                    selected.set(None)
                 }
             })
             .apply(|mut dom| {
@@ -108,11 +110,14 @@ impl App {
 
     fn get_overlay(&self, pos: usize) -> impl Signal<Item = Option<Overlay>> {
         let (card1, card2) = (self.cards[0].clone(), self.cards[1].clone());
+        let square = self.board[pos].clone();
         self.selected.signal_ref(move |&from| {
             let offset = get_offset(pos, from?)?;
+            let possible = in_card(offset, card1.get()) || in_card(offset, card2.get());
+            let square = square.get();
             if offset == 12 {
                 Some(Overlay::Highlight)
-            } else if in_card(offset, card1.get()) || in_card(offset, card2.get()) {
+            } else if possible && (square.is_none() || square.unwrap().0 != Player::White) {
                 Some(Overlay::Dot)
             } else {
                 None
