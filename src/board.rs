@@ -5,28 +5,31 @@ use dominator::{
     events::MouseDown,
     html, svg,
 };
-use futures_signals::signal::{Mutable, Signal, SignalExt};
+use futures_signals::signal::{Signal, SignalExt};
 use once_cell::sync::Lazy;
+use rmp_serde::Serializer;
+use serde::{Deserialize, Serialize};
+use web_sys::WebSocket;
 
 use crate::{
     card::{get_offset, in_card},
-    render::{Render, RenderOpt},
-    App,
+    connection::ClientMsg,
+    Game,
 };
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum PieceKind {
     Pawn,
     King,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Player {
     Black,
     White,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Piece(pub Player, pub PieceKind);
 
 #[derive(Clone, Copy, PartialEq)]
@@ -41,8 +44,8 @@ static OVERLAY_CLASS: Lazy<String> = Lazy::new(|| {
     }
 });
 
-impl App {
-    pub fn render_square(&self, pos: usize) -> Dom {
+impl Game {
+    pub fn render_square(&self, pos: usize, socket: &WebSocket) -> Dom {
         static SPAN_DARK: Lazy<String> = Lazy::new(|| {
             class! {
                 .style("display", "inline-block")
@@ -63,8 +66,8 @@ impl App {
             }
         });
 
-        let selected = self.selected.clone();
-        let square = self.board[pos].clone();
+        let app = self.clone();
+        let socket_clone = socket.clone();
 
         html!("span", {
             .class(if pos % 2 == 1 {
@@ -73,12 +76,23 @@ impl App {
                 &*SPAN_LIGHT
             })
             .event(move |_: MouseDown|{
-                let s = selected.get();
-                let square = square.get();
-                if s != Some(pos) && square.is_some() && square.unwrap().0 == Player::White {
-                    selected.set(Some(pos));
+                let selected = app.selected.get();
+                let square = app.board[pos].get();
+                if app.turn.get() == Player::Black {
+                    return ;
+                }
+                if selected != Some(pos) && square.is_some() && square.unwrap().0 == Player::White {
+                    app.selected.set(Some(pos));
                 } else {
-                    selected.set(None)
+                    if app.calculate_overlay(pos) == Some(Overlay::Dot) {
+                        let mut buf = Vec::new();
+                        let msg = ClientMsg { from: selected.unwrap(), to: pos };
+                        msg.serialize(&mut Serializer::new(&mut buf)).unwrap();
+                        socket_clone.send_with_u8_array(&buf).unwrap();
+
+                        app.turn.set(Player::Black);
+                    }
+                    app.selected.set(None)
                 }
             })
             .apply(|mut dom| {
@@ -109,20 +123,24 @@ impl App {
     }
 
     fn get_overlay(&self, pos: usize) -> impl Signal<Item = Option<Overlay>> {
-        let (card1, card2) = (self.cards[0].clone(), self.cards[1].clone());
-        let square = self.board[pos].clone();
-        self.selected.signal_ref(move |&from| {
-            let offset = get_offset(pos, from?)?;
-            let possible = in_card(offset, card1.get()) || in_card(offset, card2.get());
-            let square = square.get();
-            if offset == 12 {
-                Some(Overlay::Highlight)
-            } else if possible && (square.is_none() || square.unwrap().0 != Player::White) {
-                Some(Overlay::Dot)
-            } else {
-                None
-            }
-        })
+        let app = self.clone();
+        self.selected
+            .signal_ref(move |_| app.calculate_overlay(pos))
+    }
+
+    fn calculate_overlay(&self, pos: usize) -> Option<Overlay> {
+        let (card1, card2) = (&self.cards[0], &self.cards[1]);
+        let square = &self.board[pos];
+        let offset = get_offset(pos, self.selected.get()?)?;
+        let possible = in_card(offset, card1.get()) || in_card(offset, card2.get());
+        let square = square.get();
+        if offset == 12 {
+            Some(Overlay::Highlight)
+        } else if possible && (square.is_none() || square.unwrap().0 != Player::White) {
+            Some(Overlay::Dot)
+        } else {
+            None
+        }
     }
 }
 

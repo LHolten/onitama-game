@@ -1,22 +1,27 @@
 mod board;
 mod card;
-mod render;
+mod connection;
 
-use dominator::{class, clone, events, html, text, Dom};
-use futures_signals::signal::{Mutable, SignalExt};
-use once_cell::sync::Lazy;
-use std::sync::Arc;
+extern crate serde;
 
-use crate::board::{Overlay, Piece, PieceKind, Player};
-// use wasm_bindgen::prelude::*;
+use dominator::{class, html, Dom};
+use futures_signals::signal::Mutable;
+use web_sys::WebSocket;
 
-pub struct App {
-    board: Arc<Vec<Mutable<Option<Piece>>>>,
-    cards: Vec<Mutable<usize>>, // things that depend on this are updated  with "selected"
+use crate::{
+    board::{Piece, PieceKind, Player},
+    connection::{game_dom, ServerMsg},
+};
+
+#[derive(Clone)]
+pub struct Game {
+    board: Vec<Mutable<Option<Piece>>>,
+    cards: [Mutable<usize>; 5], // things that depend on this are updated  with "selected"
     selected: Mutable<Option<usize>>,
+    turn: Mutable<Player>,
 }
 
-impl App {
+impl Game {
     fn new() -> Self {
         let mut board = Vec::default();
         let bP = Some(Piece(Player::Black, PieceKind::Pawn));
@@ -40,14 +45,22 @@ impl App {
             Mutable::new(wP),
             Mutable::new(wP),
         ]);
+
         Self {
-            board: Arc::new(board),
-            cards: vec![Mutable::new(0), Mutable::new(1)],
+            board,
+            cards: [
+                Mutable::new(0),
+                Mutable::new(1),
+                Mutable::new(2),
+                Mutable::new(3),
+                Mutable::new(4),
+            ],
             selected: Mutable::new(None),
+            turn: Mutable::new(Player::White),
         }
     }
 
-    fn render(self) -> Dom {
+    fn render(&self, socket: &WebSocket) -> Dom {
         html!("div", {
             .class(class! {
                 .style("display", "flex")
@@ -64,18 +77,28 @@ impl App {
                 .children((0..5).map(|y|{
                     html!("div", {
                         .children((0..5).map(|x|{
-                            self.render_square(y * 5 + x)
+                            self.render_square(y * 5 + x, socket)
                         }))
                     })
                 }))
             }))
         })
     }
+
+    pub fn update(&self, msg: ServerMsg) {
+        for (from, to) in msg.board.iter().zip(self.board.iter()) {
+            to.set_neq(*from);
+        }
+        for (from, to) in msg.cards.iter().zip(self.cards.iter()) {
+            to.set_neq(*from);
+        }
+        self.turn.set_neq(msg.turn)
+    }
 }
 
 pub fn main() {
-    // #[cfg(debug_assertions)]
-    // console_error_panic_hook::set_once();
+    #[cfg(debug_assertions)]
+    console_error_panic_hook::set_once();
 
-    dominator::append_dom(&dominator::body(), App::render(App::new()));
+    dominator::append_dom(&dominator::body(), game_dom("wss://echo.websocket.org"));
 }
