@@ -1,4 +1,35 @@
+extern crate serde;
+
+use serde::{Deserialize, Serialize};
 use std::cmp::{max, min};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClientMsg {
+    pub from: usize,
+    pub to: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ServerMsg {
+    pub board: [Option<Piece>; 25],
+    pub cards: [usize; 5],
+    pub turn: Player,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum PieceKind {
+    Pawn,
+    King,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Player {
+    Black,
+    White,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Piece(pub Player, pub PieceKind);
 
 pub fn get_offset(pos: usize, from: usize) -> Option<usize> {
     let (pos_x, pos_y) = (pos % 5, pos / 5);

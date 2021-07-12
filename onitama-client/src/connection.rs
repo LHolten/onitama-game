@@ -1,27 +1,12 @@
 use std::sync::Arc;
 
-use crate::{
-    board::{Piece, Player},
-    Game,
-};
+use crate::Game;
 use dominator::Dom;
+use onitama_lib::ServerMsg;
 use rmp_serde::Deserializer;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use wasm_bindgen::{prelude::Closure, JsCast};
 use web_sys::MessageEvent;
-
-#[derive(Serialize, Deserialize)]
-pub struct ClientMsg {
-    pub from: usize,
-    pub to: usize,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ServerMsg {
-    pub board: [Option<Piece>; 25],
-    pub cards: [usize; 5],
-    pub turn: Player,
-}
 
 pub fn game_dom(url: &str) -> Dom {
     let socket = web_sys::WebSocket::new(url).unwrap();

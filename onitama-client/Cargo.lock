@@ -179,11 +179,18 @@ dependencies = [
  "futures-signals",
  "js-sys",
  "once_cell",
- "rmp",
+ "onitama-lib",
  "rmp-serde",
  "serde",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "onitama-lib"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

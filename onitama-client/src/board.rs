@@ -7,30 +7,12 @@ use dominator::{
 };
 use futures_signals::signal::{Signal, SignalExt};
 use once_cell::sync::Lazy;
+use onitama_lib::{get_offset, in_card, ClientMsg, Piece, PieceKind, Player};
 use rmp_serde::Serializer;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use web_sys::WebSocket;
 
-use crate::{
-    card::{get_offset, in_card},
-    connection::ClientMsg,
-    Game,
-};
-
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum PieceKind {
-    Pawn,
-    King,
-}
-
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum Player {
-    Black,
-    White,
-}
-
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Piece(pub Player, pub PieceKind);
+use crate::Game;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Overlay {
@@ -85,14 +67,18 @@ impl Game {
                     app.selected.set(Some(pos));
                 } else {
                     if app.calculate_overlay(pos) == Some(Overlay::Dot) {
+                        app.turn.set(Player::Black);
+
+                        let from = selected.unwrap();
+                        app.board[pos].set_neq(app.board[from].get());
+                        app.board[from].set_neq(None);
+
                         let mut buf = Vec::new();
-                        let msg = ClientMsg { from: selected.unwrap(), to: pos };
+                        let msg = ClientMsg { from, to: pos };
                         msg.serialize(&mut Serializer::new(&mut buf)).unwrap();
                         socket_clone.send_with_u8_array(&buf).unwrap();
-
-                        app.turn.set(Player::Black);
                     }
-                    app.selected.set(None)
+                    app.selected.set(None);
                 }
             })
             .apply(|mut dom| {
@@ -104,7 +90,7 @@ impl Game {
                             .visible_signal(
                                 self.board[pos].signal().map(move |p|p == Some(piece))
                             )
-                            .apply(|dom|piece.render(dom))
+                            .apply(|dom|piece_render(&piece, dom))
                         }))
                     }
                 };
@@ -144,19 +130,17 @@ impl Game {
     }
 }
 
-impl Piece {
-    fn render(&self, dom: DomBuilder<HtmlElement>) -> DomBuilder<HtmlElement> {
-        let file = match self {
-            Piece(Player::White, PieceKind::King) => "wB.svg",
-            Piece(Player::White, PieceKind::Pawn) => "wP.svg",
-            Piece(Player::Black, PieceKind::King) => "bB.svg",
-            Piece(Player::Black, PieceKind::Pawn) => "bP.svg",
-        };
+fn piece_render(piece: &Piece, dom: DomBuilder<HtmlElement>) -> DomBuilder<HtmlElement> {
+    let file = match piece {
+        Piece(Player::White, PieceKind::King) => "wB.svg",
+        Piece(Player::White, PieceKind::Pawn) => "wP.svg",
+        Piece(Player::Black, PieceKind::King) => "bB.svg",
+        Piece(Player::Black, PieceKind::Pawn) => "bP.svg",
+    };
 
-        dom.attr("src", file)
-            .attr("width", "80")
-            .attr("height", "80")
-    }
+    dom.attr("src", file)
+        .attr("width", "80")
+        .attr("height", "80")
 }
 
 impl Overlay {

@@ -15,9 +15,10 @@ web-sys = { version = "0.3.51", features = [
     "MessageEvent",
     "EventListener",
 ] }
-rmp = "^0.8"
-rmp-serde = "^0.15"
-serde = { version = "^1.0", features = ["derive"] }
+
 console_error_panic_hook = "0.1.6"
 wasm-bindgen = "*"
 js-sys = "*"
+onitama-lib = { path = "../onitama-lib" }
+rmp-serde = "^0.15"
+serde = "*"
