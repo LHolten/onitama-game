@@ -1,4 +1,10 @@
-use dominator::{class, events::MouseDown, html, svg, Dom};
+use dominator::{
+    Dom, DomBuilder,
+    __internal::{HtmlElement, SvgElement},
+    class,
+    events::MouseDown,
+    html, svg,
+};
 use futures_signals::signal::{Mutable, SignalExt};
 use once_cell::sync::Lazy;
 
@@ -8,16 +14,19 @@ use crate::{
     App,
 };
 
+#[derive(Clone, Copy, PartialEq)]
 pub enum PieceKind {
     Pawn,
     King,
 }
 
+#[derive(Clone, Copy, PartialEq)]
 pub enum Player {
     Black,
     White,
 }
 
+#[derive(Clone, Copy, PartialEq)]
 pub struct Piece(pub Player, pub PieceKind);
 
 pub enum Overlay {
@@ -25,31 +34,11 @@ pub enum Overlay {
     Dot,
 }
 
-#[derive(Clone)]
-pub struct Square(pub Mutable<Option<Piece>>);
-
 static OVERLAY_CLASS: Lazy<String> = Lazy::new(|| {
     class! {
         .style("position", "absolute")
     }
 });
-
-impl Render for Piece {
-    fn render(&self) -> Dom {
-        let file = match self {
-            Piece(Player::White, PieceKind::King) => "wB.svg",
-            Piece(Player::White, PieceKind::Pawn) => "wP.svg",
-            Piece(Player::Black, PieceKind::King) => "bB.svg",
-            Piece(Player::Black, PieceKind::Pawn) => "bP.svg",
-        };
-
-        html!("img", {
-            .attr("src", file)
-            .attr("width", "80")
-            .attr("height", "80")
-        })
-    }
-}
 
 impl App {
     pub fn render_square(&self, pos: usize) -> Dom {
@@ -74,6 +63,7 @@ impl App {
         });
 
         let selected = self.selected.clone();
+        let (card1, card2) = (self.cards[0].clone(), self.cards[1].clone());
 
         html!("span", {
             .class(if pos % 2 == 1 {
@@ -81,8 +71,6 @@ impl App {
             } else {
                 &*SPAN_LIGHT
             })
-            .child(self.render_overlay(pos))
-            .child_signal(self.board[pos].0.signal_ref(RenderOpt::render_opt))
             .event(move |_: MouseDown|{
                 let s = selected.get();
                 if s.is_some() && s.unwrap() == pos{
@@ -91,19 +79,67 @@ impl App {
                     selected.set(Some(pos));
                 }
             })
-        })
-    }
-
-    fn render_overlay(&self, pos: usize) -> Dom {
-        let (card1, card2) = (self.cards[0].clone(), self.cards[1].clone());
-
-        html!("div", {
-            .class(&*OVERLAY_CLASS)
+            .apply(|mut dom| {
+                for player in [Player::Black, Player::White] {
+                    for kind in [PieceKind::Pawn, PieceKind::King] {
+                        let piece = Piece(player, kind);
+                        dom = dom.child(html!("img", {
+                            .class(&*OVERLAY_CLASS)
+                            .visible_signal(
+                                self.board[pos].signal_ref(move |p|p.is_some() && p.unwrap() == piece)
+                            )
+                            .apply(|dom|piece.render(dom))
+                        }))
+                    }
+                };
+                dom
+            })
+            .child(svg!("svg", {
+                .class(&*OVERLAY_CLASS)
+                .visible_signal(
+                    self.selected
+                        .signal_ref(move |from| from.map(|from| from == pos).unwrap_or(false))
+                        .dedupe()
+                )
+                .apply(|dom|Overlay::Highlight.render(dom))
+            }))
             .child(svg!("svg", {
                 .class(&*OVERLAY_CLASS)
                 .visible_signal(self.selected.signal_ref(move |from| {
-                    from.map(|from| from==pos).unwrap_or(false)
+                    from.map(|from| {
+                        get_offset(pos, from)
+                            .map(|offset| {
+                                in_card(offset, card1.get()) || in_card(offset, card2.get())
+                            })
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false)
                 }).dedupe())
+                .apply(|dom|Overlay::Dot.render(dom))
+            }))
+        })
+    }
+}
+
+impl Piece {
+    fn render(&self, dom: DomBuilder<HtmlElement>) -> DomBuilder<HtmlElement> {
+        let file = match self {
+            Piece(Player::White, PieceKind::King) => "wB.svg",
+            Piece(Player::White, PieceKind::Pawn) => "wP.svg",
+            Piece(Player::Black, PieceKind::King) => "bB.svg",
+            Piece(Player::Black, PieceKind::Pawn) => "bP.svg",
+        };
+
+        dom.attr("src", file)
+            .attr("width", "80")
+            .attr("height", "80")
+    }
+}
+
+impl Overlay {
+    fn render(&self, dom: DomBuilder<SvgElement>) -> DomBuilder<SvgElement> {
+        match self {
+            Overlay::Highlight => dom
                 .attr("width", "80")
                 .attr("height", "80")
                 .attr("viewBox", "0 0 1 1")
@@ -116,18 +152,8 @@ impl App {
                     .attr("stroke-dasharray", "0.5")
                     .attr("stroke-dashoffset", "0.25")
                     .attr("stroke-opacity", "0.5")
-                }))
-            }))
-            .child(svg!("svg", {
-                .class(&*OVERLAY_CLASS)
-                .visible(false)
-                .visible_signal(self.selected.signal_ref(move |from| {
-                    from.map(|from| {
-                        get_offset(pos, from).map(|offset|{
-                            in_card(offset, card1.get()) || in_card(offset, card2.get())
-                        }).unwrap_or(false)
-                    }).unwrap_or(false)
-                }))
+                })),
+            Overlay::Dot => dom
                 .attr("width", "80")
                 .attr("height", "80")
                 .attr("viewBox", "-1 -1 2 2")
@@ -135,8 +161,7 @@ impl App {
                     .attr("r", "0.25")
                     .attr("fill", "green")
                     .attr("fill-opacity", "0.5")
-                }))
-            }))
-        })
+                })),
+        }
     }
 }
