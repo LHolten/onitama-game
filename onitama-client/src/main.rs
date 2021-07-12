@@ -20,7 +20,7 @@ pub fn main() {
     #[cfg(debug_assertions)]
     console_error_panic_hook::set_once();
 
-    dominator::append_dom(&dominator::body(), game_dom("wss://echo.websocket.org"));
+    dominator::append_dom(&dominator::body(), game_dom("ws://127.0.0.1:9001"));
 }
 
 impl Game {

@@ -8,3 +8,5 @@ edition = "2018"
 [dependencies]
 tungstenite = "0.14.0"
 onitama-lib = { path = "../onitama-lib" }
+rmp-serde = "^0.15"
+serde = "*"
