@@ -1,10 +1,11 @@
-use onitama_lib::{Piece, PieceKind, Player, ServerMsg};
-use rmp_serde::Serializer;
-use serde::Serialize;
+use onitama_lib::{get_offset, in_card, ClientMsg, Piece, PieceKind, Player, ServerMsg};
+use rmp_serde::{Deserializer, Serializer};
+use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
-use std::net::TcpListener;
+use std::mem::swap;
+use std::net::{TcpListener, TcpStream};
 use tungstenite::server::accept;
-use tungstenite::Message;
+use tungstenite::{Message, WebSocket};
 
 fn main() {
     let server = TcpListener::bind("127.0.0.1:9001").unwrap();
@@ -15,16 +16,62 @@ fn main() {
 
         let mut game = new_game();
 
-        let mut buf = Vec::new();
-        game.serialize(&mut Serializer::new(&mut buf)).unwrap();
-        client1.write_message(Message::Binary(buf)).unwrap();
+        while game_turn(&mut game, &mut client1, &mut client2).is_some() {
+            swap(&mut client1, &mut client2);
+        }
 
-        mirror_game(&mut game);
-
-        let mut buf = Vec::new();
-        game.serialize(&mut Serializer::new(&mut buf)).unwrap();
-        client2.write_message(Message::Binary(buf)).unwrap();
+        println!("game over");
     }
+}
+
+fn game_turn(
+    game: &mut ServerMsg,
+    conn_curr: &mut WebSocket<TcpStream>,
+    conn_other: &mut WebSocket<TcpStream>,
+) -> Option<()> {
+    let mut buf = Vec::new();
+    game.serialize(&mut Serializer::new(&mut buf)).unwrap();
+    conn_other.write_message(Message::Binary(buf)).ok()?;
+
+    mirror_game(game);
+
+    let mut buf = Vec::new();
+    game.serialize(&mut Serializer::new(&mut buf)).unwrap();
+    conn_curr.write_message(Message::Binary(buf)).ok()?;
+
+    let action: ClientMsg = loop {
+        match conn_curr.read_message().ok()? {
+            Message::Binary(data) => {
+                break ClientMsg::deserialize(&mut Deserializer::new(&data[..])).ok()?;
+            }
+            Message::Ping(_) => conn_curr.write_pending().ok()?,
+            _ => return None,
+        }
+    };
+
+    println!("got action");
+
+    let piece_from = *game.board.get(action.from)?;
+    if piece_from.is_none() || piece_from.unwrap().0 != game.turn {
+        return None;
+    }
+
+    let piece_to = *game.board.get(action.to)?;
+    if piece_to.is_some() && piece_to.unwrap().0 == game.turn {
+        return None;
+    }
+
+    let offset = get_offset(action.to, action.from)?;
+    if !in_card(offset, game.cards[0]) && !in_card(offset, game.cards[1]) {
+        return None;
+    }
+
+    // more checks
+
+    game.board[action.to] = game.board[action.from].take();
+    flip_player(&mut game.turn);
+
+    Some(())
 }
 
 fn mirror_game(game: &mut ServerMsg) {
@@ -55,7 +102,7 @@ fn new_game() -> ServerMsg {
     ServerMsg {
         board: board.try_into().unwrap(),
         cards: [0; 5],
-        turn: Player::White,
+        turn: Player::Black,
     }
 }
 
