@@ -1,6 +1,8 @@
-use onitama_lib::{check_move, is_mate, ClientMsg, Piece, PieceKind, Player, ServerMsg};
+use onitama_lib::{
+    check_move, get_offset, in_card, is_mate, ClientMsg, Piece, PieceKind, Player, ServerMsg,
+};
 use rand::prelude::SliceRandom;
-use rand::thread_rng;
+use rand::{thread_rng, Rng};
 use rmp_serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
@@ -58,6 +60,19 @@ fn game_turn(
     println!("got action");
 
     check_move(game, action.from, action.to)?;
+
+    let offset = get_offset(action.to, action.from).unwrap();
+    let index = match (
+        in_card(offset, game.cards[0]),
+        in_card(offset, game.cards[1]),
+    ) {
+        (true, true) => thread_rng().gen::<bool>() as usize,
+        (true, false) => 0,
+        (false, true) => 1,
+        (false, false) => unreachable!(),
+    };
+
+    game.cards.swap(index, 2);
 
     game.board[action.to] = game.board[action.from].take();
 
