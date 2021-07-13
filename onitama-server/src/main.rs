@@ -50,7 +50,15 @@ fn handle_game(mut conn1: WebSocket<TcpStream>, mut conn2: WebSocket<TcpStream>)
         swap(&mut conn1, &mut conn2);
     }
 
+    close_connection(conn1);
+    close_connection(conn2);
+
     println!("game over");
+}
+
+fn close_connection(mut conn: WebSocket<TcpStream>) {
+    conn.close(None).unwrap();
+    while conn.read_message().is_ok() {}
 }
 
 fn game_turn(
@@ -61,12 +69,14 @@ fn game_turn(
     let mut buf = Vec::new();
     game.serialize(&mut Serializer::new(&mut buf)).unwrap();
     conn_other.write_message(Message::Binary(buf)).ok()?;
+    conn_other.write_pending().ok()?;
 
     mirror_game(game);
 
     let mut buf = Vec::new();
     game.serialize(&mut Serializer::new(&mut buf)).unwrap();
     conn_curr.write_message(Message::Binary(buf)).ok()?;
+    conn_curr.write_pending().ok()?;
 
     if is_mate(game) {
         return None;

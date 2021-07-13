@@ -1,4 +1,5 @@
 mod board;
+mod card;
 mod connection;
 
 use dominator::{class, html, Dom};
@@ -7,7 +8,7 @@ use once_cell::sync::Lazy;
 use onitama_lib::{Player, ServerMsg};
 use web_sys::WebSocket;
 
-use crate::connection::game_dom;
+use crate::{card::render_card, connection::game_dom};
 
 #[derive(Clone)]
 pub struct App {
@@ -94,23 +95,14 @@ impl App {
                     .style("flex-direction", "column")
                 })
                 .child(html!("div", {
-                    .class(&*TEXT)
-                    .text("Opponent cards: ")
-                    .text_signal(self.card_name(4))
-                    .text(", ")
-                    .text_signal(self.card_name(3))
+                    .child(render_card(&self.game, 4, true))
+                    .child(render_card(&self.game, 3, true))
+                    .child(render_card(&self.game, 2, true))
                 }))
                 .child(html!("div", {
-                    .class(&*TEXT)
-                    .text("Table card: ")
-                    .text_signal(self.card_name(2))
-                }))
-                .child(html!("div", {
-                    .class(&*TEXT)
-                    .text("Your cards: ")
-                    .text_signal(self.card_name(1))
-                    .text(", ")
-                    .text_signal(self.card_name(0))
+                    .child(render_card(&self.game, 0, false))
+                    .child(render_card(&self.game, 1, false))
+                    .child(render_card(&self.game, 2, false))
                 }))
             }))
         })
