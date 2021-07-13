@@ -2,7 +2,7 @@ mod board;
 mod connection;
 
 use dominator::{class, html, text, Dom};
-use futures_signals::signal::Mutable;
+use futures_signals::signal::{Mutable, Signal, SignalExt};
 use once_cell::sync::Lazy;
 use onitama_lib::{GameState, Piece, Player, ServerMsg};
 use web_sys::WebSocket;
@@ -75,11 +75,22 @@ impl Game {
                 })
                 .child(html!("div", {
                     .class(&*TEXT)
-                    .text("Player 1")
+                    .text("Opponent cards: ")
+                    .text_signal(card_name(&self.cards[4]))
+                    .text(", ")
+                    .text_signal(card_name(&self.cards[3]))
                 }))
                 .child(html!("div", {
                     .class(&*TEXT)
-                    .text("Player 2")
+                    .text("Table card: ")
+                    .text_signal(card_name(&self.cards[2]))
+                }))
+                .child(html!("div", {
+                    .class(&*TEXT)
+                    .text("Your cards: ")
+                    .text_signal(card_name(&self.cards[1]))
+                    .text(", ")
+                    .text_signal(card_name(&self.cards[0]))
                 }))
             }))
         })
@@ -95,3 +106,12 @@ impl Game {
         self.state.set_neq(msg.state);
     }
 }
+
+fn card_name(card: &Mutable<usize>) -> impl Signal<Item = &'static str> {
+    card.signal().map(|card| CARD_NAMES[card])
+}
+
+const CARD_NAMES: &[&str] = &[
+    "ox", "boar", "horse", "elephant", "crab", "tiger", "monkey", "crane", "dragon", "mantis",
+    "frog", "rabbit", "goose", "rooster", "eel", "cobra",
+];
