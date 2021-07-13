@@ -57,6 +57,18 @@ impl App {
                 .style("bottom", "0")
                 .style("left", "0")
             })
+            .child(html!("div", {
+                .class(class!{
+                    .style("display", "flex")
+                    .style("flex-direction", "column")
+                })
+                .child(html!("div", {
+                    .child(render_card(&self.game, 2, true))
+                }))
+                .child(html!("div", {
+                    .child(render_card(&self.game, 2, false))
+                }))
+            }))
             .child(html!("main", {
                 .child(html!("div", {
                     .class(class!{
@@ -97,12 +109,10 @@ impl App {
                 .child(html!("div", {
                     .child(render_card(&self.game, 4, true))
                     .child(render_card(&self.game, 3, true))
-                    .child(render_card(&self.game, 2, true))
                 }))
                 .child(html!("div", {
                     .child(render_card(&self.game, 0, false))
                     .child(render_card(&self.game, 1, false))
-                    .child(render_card(&self.game, 2, false))
                 }))
             }))
         })

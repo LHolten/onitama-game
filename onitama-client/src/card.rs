@@ -18,40 +18,42 @@ pub fn render_card(game: &Mutable<ServerMsg>, card: usize, rotated: bool) -> Dom
                 .children((0..5).map(|x|{
                     let mut pos = y * 5 + x;
                     if rotated {pos = 24 - pos}
-                    render_card_square(game, card, pos)
+                    render_card_square(game, card, pos, rotated)
                 }))
             })
         }))
     })
 }
 
-fn render_card_square(game: &Mutable<ServerMsg>, card: usize, pos: usize) -> Dom {
-    static CARD_YES: Lazy<String> = Lazy::new(|| {
-        class! {
-            .style("display", "inline-block")
-            .style("vertical-align", "bottom")
-            .style("background", "green")
-            .style("width", "20px")
-            .style("height", "20px")
-        }
-    });
+fn render_card_square(game: &Mutable<ServerMsg>, card: usize, pos: usize, rotated: bool) -> Dom {
+    static CARD_YES: Lazy<String> = Lazy::new(|| card_colour("#78ac5a"));
+    static CARD_NO: Lazy<String> = Lazy::new(|| card_colour("#f0d9b5"));
+    static CARD_WHITE: Lazy<String> = Lazy::new(|| card_colour("white"));
+    static CARD_BLACK: Lazy<String> = Lazy::new(|| card_colour("black"));
 
-    static CARD_NO: Lazy<String> = Lazy::new(|| {
-        class! {
-            .style("display", "inline-block")
-            .style("vertical-align", "bottom")
-            .style("background", "#f0d9b5")
-            .style("width", "20px")
-            .style("height", "20px")
-        }
-    });
+    if pos == 12 {
+        html!("div", {
+            .class(if rotated {&*CARD_BLACK} else {&*CARD_WHITE})
+        })
+    } else {
+        html!("div", {
+            .class_signal(&*CARD_YES, game.signal_ref(move|g|{g.cards[card]}).dedupe().map(move |card|{
+                in_card(pos, card)
+            }).dedupe())
+            .class_signal(&*CARD_NO, game.signal_ref(move|g|{g.cards[card]}).dedupe().map(move|card|{
+                !in_card(pos, card)
+            }).dedupe())
+        })
+    }
+}
 
-    html!("div", {
-        .class_signal(&*CARD_YES, game.signal_ref(move|g|{g.cards[card]}).dedupe().map(move |card|{
-            in_card(pos, card)
-        }).dedupe())
-        .class_signal(&*CARD_NO, game.signal_ref(move|g|{g.cards[card]}).dedupe().map(move|card|{
-            !in_card(pos, card)
-        }).dedupe())
-    })
+fn card_colour(colour: &str) -> String {
+    class! {
+        .style("display", "inline-block")
+        .style("vertical-align", "bottom")
+        .style("background", colour)
+        .style("width", "20px")
+        .style("height", "20px")
+        // .style("border", "1px solid")
+    }
 }
