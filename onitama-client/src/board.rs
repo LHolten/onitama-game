@@ -67,7 +67,7 @@ impl App {
                 }
                 if from != Some(pos) && square.is_some() && square.unwrap().0 == Player::You {
                     selected.set(Some(pos));
-                } else if from.is_some() && check_move(&*g, from.unwrap(), pos).is_some() {
+                } else if from.is_some() && check_move(&mut*g, from.unwrap(), pos).is_some() {
                     selected.set(None);
                     g.turn = Player::Other;
 
@@ -111,10 +111,10 @@ impl App {
         let game = self.game.clone();
         self.selected.signal_ref(move |&from| {
             let from = from?;
-            let game = game.lock_ref();
+            let mut game = game.lock_mut();
             if from == pos {
                 Some(Overlay::Highlight)
-            } else if check_move(&*game, from, pos).is_some() {
+            } else if check_move(&mut *game, from, pos).is_some() {
                 Some(Overlay::Dot)
             } else {
                 None

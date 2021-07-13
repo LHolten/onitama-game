@@ -9,6 +9,7 @@ use std::convert::TryInto;
 use std::mem::swap;
 use std::net::{TcpListener, TcpStream};
 use std::thread;
+use std::time::{Duration, Instant};
 use tungstenite::server::accept;
 use tungstenite::util::NonBlockingResult;
 use tungstenite::{Message, WebSocket};
@@ -82,7 +83,14 @@ fn game_turn(
         return None;
     }
 
+    let now = Instant::now();
+
     let action: ClientMsg = loop {
+        let timeout = game.timers[0].saturating_sub(now.elapsed());
+        if timeout.is_zero() {
+            return None;
+        }
+        conn_curr.get_ref().set_read_timeout(Some(timeout)).unwrap();
         match conn_curr.read_message().ok()? {
             Message::Binary(data) => {
                 break ClientMsg::deserialize(&mut Deserializer::new(&data[..])).ok()?;
@@ -91,6 +99,8 @@ fn game_turn(
             _ => return None,
         }
     };
+
+    game.timers[0] = game.timers[0].saturating_sub(now.elapsed()) + Duration::from_secs(2);
 
     println!("got action");
 
@@ -121,6 +131,7 @@ fn mirror_game(game: &mut ServerMsg) {
     }
     game.cards.reverse();
     flip_player(&mut game.turn);
+    game.timers.reverse();
 }
 
 fn flip_player(player: &mut Player) {
@@ -149,6 +160,7 @@ fn new_game() -> ServerMsg {
             .collect::<Vec<usize>>()
             .try_into()
             .unwrap(),
+        timers: [Duration::from_secs(60 * 3); 2],
         turn: Player::Other,
     }
 }

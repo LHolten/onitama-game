@@ -4,7 +4,9 @@ use boolinator::Boolinator;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::{max, min},
+    mem::{replace, take},
     ops::Not,
+    time::Duration,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,6 +19,7 @@ pub struct ClientMsg {
 pub struct ServerMsg {
     pub board: [Option<Piece>; 25],
     pub cards: [usize; 5],
+    pub timers: [Duration; 2],
     pub turn: Player,
 }
 
@@ -60,14 +63,19 @@ pub fn apply_offset(offset: usize, from: usize) -> Option<usize> {
 }
 
 const KING: Option<Piece> = Some(Piece(Player::You, PieceKind::King));
+const OPP_KING: Option<Piece> = Some(Piece(Player::Other, PieceKind::King));
 
-pub fn is_mate(game: &ServerMsg) -> bool {
-    is_check(game, 22) || {
-        !(0..25).any(|from| (0..25).any(|to| check_move(game, from, to).is_some()))
+pub fn is_mate(game: &mut ServerMsg) -> bool {
+    let opp_king = game.board.iter().position(|&p| p == OPP_KING).unwrap();
+    if let Some(offset) = get_offset(opp_king, 22) {
+        if in_card(offset, game.cards[3]) || in_card(offset, game.cards[4]) {
+            return true;
+        }
     }
+    !(0..25).any(|from| (0..25).any(|to| check_move(game, from, to).is_some()))
 }
 
-pub fn check_move(game: &ServerMsg, from: usize, to: usize) -> Option<()> {
+pub fn check_move(game: &mut ServerMsg, from: usize, to: usize) -> Option<()> {
     let piece = game.board[from]?;
     (piece.0 == Player::You).as_option()?;
     let other = game.board[to];
@@ -75,18 +83,17 @@ pub fn check_move(game: &ServerMsg, from: usize, to: usize) -> Option<()> {
     let offset = get_offset(to, from)?;
     (in_card(offset, game.cards[0]) || in_card(offset, game.cards[1])).as_option()?;
 
-    // if the king is in check it has to be moved
-    let king = game.board.iter().position(|&p| p == KING).unwrap();
-    (!is_check(game, king) || from == king).as_option()?;
+    let piece = take(&mut game.board[from]);
+    let tmp = replace(&mut game.board[to], piece);
+    let check = is_check(game);
+    game.board[from] = replace(&mut game.board[to], tmp);
 
-    match piece.1 {
-        PieceKind::Pawn => Some(()),
-        PieceKind::King => is_check(game, to).not().as_option(),
-    }
+    check.not().as_option()
 }
 
-fn is_check(game: &ServerMsg, from: usize) -> bool {
-    is_check_card(game, from, game.cards[3]) || is_check_card(game, from, game.cards[4])
+fn is_check(game: &ServerMsg) -> bool {
+    let king = game.board.iter().position(|&p| p == KING).unwrap();
+    is_check_card(game, king, game.cards[3]) || is_check_card(game, king, game.cards[4])
 }
 
 fn is_check_card(game: &ServerMsg, from: usize, card: usize) -> bool {
