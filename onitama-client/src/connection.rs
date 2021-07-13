@@ -20,7 +20,7 @@ pub fn game_dom(url: &str) -> Dom {
         let array = js_sys::Uint8Array::new(&buf).to_vec();
 
         let msg = ServerMsg::deserialize(&mut Deserializer::new(&array[..])).unwrap();
-        game_clone.update(msg);
+        game_clone.game.set(msg);
     }) as Box<dyn FnMut(MessageEvent)>);
 
     socket.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));

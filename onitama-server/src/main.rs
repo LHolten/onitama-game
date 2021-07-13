@@ -1,4 +1,4 @@
-use onitama_lib::{get_offset, in_card, ClientMsg, Piece, PieceKind, Player, ServerMsg};
+use onitama_lib::{check_move, ClientMsg, Piece, PieceKind, Player, ServerMsg};
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use rmp_serde::{Deserializer, Serializer};
@@ -53,22 +53,7 @@ fn game_turn(
 
     println!("got action");
 
-    let piece_from = *game.board.get(action.from)?;
-    if piece_from.is_none() || piece_from.unwrap().0 == Player::Black {
-        return None;
-    }
-
-    let piece_to = *game.board.get(action.to)?;
-    if piece_to.is_some() && piece_to.unwrap().0 == Player::White {
-        return None;
-    }
-
-    let offset = get_offset(action.to, action.from)?;
-    if !in_card(offset, game.cards[0]) && !in_card(offset, game.cards[1]) {
-        return None;
-    }
-
-    // more checks
+    check_move(game, action.from, action.to)?;
 
     game.board[action.to] = game.board[action.from].take();
 

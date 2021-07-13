@@ -1,20 +1,18 @@
 mod board;
 mod connection;
 
-use dominator::{class, html, text, Dom};
-use futures_signals::signal::{Mutable, Signal, SignalExt};
+use dominator::{class, html, Dom};
+use futures_signals::signal::{Mutable, Signal};
 use once_cell::sync::Lazy;
-use onitama_lib::{GameState, Piece, Player, ServerMsg};
+use onitama_lib::{GameState, ServerMsg};
 use web_sys::WebSocket;
 
 use crate::connection::game_dom;
 
 #[derive(Clone)]
 pub struct Game {
-    board: Vec<Mutable<Option<Piece>>>,
-    cards: [Mutable<usize>; 5], // things that depend on this are updated  with "selected"
+    game: Mutable<ServerMsg>,
     selected: Mutable<Option<usize>>,
-    state: Mutable<GameState>,
 }
 
 pub fn main() {
@@ -26,16 +24,13 @@ pub fn main() {
 
 impl Game {
     fn new() -> Self {
-        let mut board = Vec::default();
-        for _ in 0..25 {
-            board.push(Mutable::new(None));
-        }
-
         Self {
-            board,
-            cards: Default::default(),
+            game: Mutable::new(ServerMsg {
+                board: Default::default(),
+                cards: Default::default(),
+                state: GameState::Waiting,
+            }),
             selected: Mutable::new(None),
-            state: Mutable::new(GameState::Waiting),
         }
     }
 
@@ -76,39 +71,30 @@ impl Game {
                 .child(html!("div", {
                     .class(&*TEXT)
                     .text("Opponent cards: ")
-                    .text_signal(card_name(&self.cards[4]))
+                    .text_signal(self.card_name(4))
                     .text(", ")
-                    .text_signal(card_name(&self.cards[3]))
+                    .text_signal(self.card_name(3))
                 }))
                 .child(html!("div", {
                     .class(&*TEXT)
                     .text("Table card: ")
-                    .text_signal(card_name(&self.cards[2]))
+                    .text_signal(self.card_name(2))
                 }))
                 .child(html!("div", {
                     .class(&*TEXT)
                     .text("Your cards: ")
-                    .text_signal(card_name(&self.cards[1]))
+                    .text_signal(self.card_name(1))
                     .text(", ")
-                    .text_signal(card_name(&self.cards[0]))
+                    .text_signal(self.card_name(0))
                 }))
             }))
         })
     }
 
-    pub fn update(&self, msg: ServerMsg) {
-        for (from, to) in msg.board.iter().zip(self.board.iter()) {
-            to.set_neq(*from);
-        }
-        for (from, to) in msg.cards.iter().zip(self.cards.iter()) {
-            to.set_neq(*from);
-        }
-        self.state.set_neq(msg.state);
+    fn card_name(&self, card_pos: usize) -> impl Signal<Item = &'static str> {
+        self.game
+            .signal_ref(move |game| CARD_NAMES[game.cards[card_pos]])
     }
-}
-
-fn card_name(card: &Mutable<usize>) -> impl Signal<Item = &'static str> {
-    card.signal().map(|card| CARD_NAMES[card])
 }
 
 const CARD_NAMES: &[&str] = &[

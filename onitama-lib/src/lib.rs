@@ -1,7 +1,11 @@
 extern crate serde;
 
+use boolinator::Boolinator;
 use serde::{Deserialize, Serialize};
-use std::cmp::{max, min};
+use std::{
+    cmp::{max, min},
+    ops::Not,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClientMsg {
@@ -49,6 +53,59 @@ pub fn get_offset(pos: usize, from: usize) -> Option<usize> {
         let (offset_x, offset_y) = (2 + pos_x - from_x, 2 + pos_y - from_y);
         Some(offset_y * 5 + offset_x)
     }
+}
+
+pub fn apply_offset(offset: usize, from: usize) -> Option<usize> {
+    let (offset_x, offset_y) = (offset % 5, offset / 5);
+    let (from_x, from_y) = (from % 5, from / 5);
+
+    let (pos_x, pos_y) = (from_x + offset_x, from_y + offset_y);
+    if !(2..7).contains(&pos_x) || !(2..7).contains(&pos_y) {
+        None
+    } else {
+        Some((pos_y - 2) * 5 + (pos_x - 2))
+    }
+}
+
+const KING: Option<Piece> = Some(Piece(Player::White, PieceKind::King));
+
+pub fn is_mate(game: &ServerMsg) -> bool {
+    is_check(game, 22) || {
+        !(0..25).any(|from| (0..25).any(|to| check_move(game, from, to).is_some()))
+    }
+}
+
+pub fn check_move(game: &ServerMsg, from: usize, to: usize) -> Option<()> {
+    let piece = game.board[from]?;
+    (piece.0 == Player::White).as_option()?;
+    let other = game.board[to];
+    (other.is_none() || other.unwrap().0 == Player::Black).as_option()?;
+    let offset = get_offset(to, from)?;
+    (in_card(offset, game.cards[0]) || in_card(offset, game.cards[1])).as_option()?;
+
+    // if the king is in check it has to be moved
+    let king = game.board.iter().position(|&p| p == KING).unwrap();
+    (!is_check(game, king) || from == king).as_option()?;
+
+    match piece.1 {
+        PieceKind::Pawn => Some(()),
+        PieceKind::King => is_check(game, to).not().as_option(),
+    }
+}
+
+fn is_check(game: &ServerMsg, from: usize) -> bool {
+    is_check_card(game, from, game.cards[3]) || is_check_card(game, from, game.cards[4])
+}
+
+fn is_check_card(game: &ServerMsg, from: usize, card: usize) -> bool {
+    CARDS[card]
+        .iter()
+        .map(|&offset| apply_offset(offset, from))
+        .flatten()
+        .any(|pos| {
+            let piece = game.board[pos];
+            piece.is_some() && piece.unwrap().0 == Player::Black
+        })
 }
 
 fn diff(a: usize, b: usize) -> usize {
