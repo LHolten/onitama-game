@@ -13,11 +13,10 @@ pub struct ClientMsg {
 pub struct ServerMsg {
     pub board: [Option<Piece>; 25],
     pub cards: [usize; 5],
-    pub turn: Player,
     pub state: GameState,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum GameState {
     Waiting,
     Playing,

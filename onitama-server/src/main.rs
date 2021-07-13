@@ -54,12 +54,12 @@ fn game_turn(
     println!("got action");
 
     let piece_from = *game.board.get(action.from)?;
-    if piece_from.is_none() || piece_from.unwrap().0 != game.turn {
+    if piece_from.is_none() || piece_from.unwrap().0 == Player::Black {
         return None;
     }
 
     let piece_to = *game.board.get(action.to)?;
-    if piece_to.is_some() && piece_to.unwrap().0 == game.turn {
+    if piece_to.is_some() && piece_to.unwrap().0 == Player::White {
         return None;
     }
 
@@ -71,7 +71,6 @@ fn game_turn(
     // more checks
 
     game.board[action.to] = game.board[action.from].take();
-    flip_player(&mut game.turn);
 
     Some(())
 }
@@ -81,7 +80,6 @@ fn mirror_game(game: &mut ServerMsg) {
     for piece in game.board.iter_mut().flatten() {
         flip_player(&mut piece.0);
     }
-    flip_player(&mut game.turn);
     game.cards.reverse();
 }
 
@@ -111,7 +109,6 @@ fn new_game() -> ServerMsg {
             .collect::<Vec<usize>>()
             .try_into()
             .unwrap(),
-        turn: Player::Black,
         state: onitama_lib::GameState::Playing,
     }
 }
