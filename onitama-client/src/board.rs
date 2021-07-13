@@ -12,7 +12,7 @@ use rmp_serde::Serializer;
 use serde::Serialize;
 use web_sys::WebSocket;
 
-use crate::Game;
+use crate::App;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Overlay {
@@ -26,7 +26,7 @@ static OVERLAY_CLASS: Lazy<String> = Lazy::new(|| {
     }
 });
 
-impl Game {
+impl App {
     pub fn render_square(&self, pos: usize, socket: &WebSocket) -> Dom {
         static SPAN_DARK: Lazy<String> = Lazy::new(|| {
             class! {
@@ -89,7 +89,7 @@ impl Game {
                             .visible_signal(
                                 self.game.signal_ref(move |g| {
                                     g.board[pos] == Some(piece)
-                                })
+                                }).dedupe()
                             ).into_dom()
                         )
                     }
@@ -98,7 +98,7 @@ impl Game {
                     dom = dom.child(
                         overlay.render().class(&*OVERLAY_CLASS)
                         .visible_signal(
-                            self.get_overlay(pos).map(move |o|o==Some(overlay))
+                            self.get_overlay(pos).map(move |o|o==Some(overlay)).dedupe()
                         ).into_dom()
                     )
                 }

@@ -73,8 +73,8 @@ fn game_turn(
     };
 
     game.cards.swap(index, 2);
-
     game.board[action.to] = game.board[action.from].take();
+    flip_player(&mut game.turn);
 
     Some(())
 }
@@ -85,6 +85,7 @@ fn mirror_game(game: &mut ServerMsg) {
         flip_player(&mut piece.0);
     }
     game.cards.reverse();
+    flip_player(&mut game.turn);
 }
 
 fn flip_player(player: &mut Player) {
@@ -113,7 +114,7 @@ fn new_game() -> ServerMsg {
             .collect::<Vec<usize>>()
             .try_into()
             .unwrap(),
-        turn: Player::You,
+        turn: Player::Other,
     }
 }
 

@@ -1,7 +1,7 @@
 mod board;
 mod connection;
 
-use dominator::{class, html, Dom};
+use dominator::{class, html, text_signal, Dom};
 use futures_signals::signal::{Mutable, Signal};
 use once_cell::sync::Lazy;
 use onitama_lib::{Player, ServerMsg};
@@ -10,9 +10,10 @@ use web_sys::WebSocket;
 use crate::connection::game_dom;
 
 #[derive(Clone)]
-pub struct Game {
+pub struct App {
     game: Mutable<ServerMsg>,
     selected: Mutable<Option<usize>>,
+    done: Mutable<bool>,
 }
 
 pub fn main() {
@@ -22,7 +23,7 @@ pub fn main() {
     dominator::append_dom(&dominator::body(), game_dom("ws://127.0.0.1:9001"));
 }
 
-impl Game {
+impl App {
     fn new() -> Self {
         Self {
             game: Mutable::new(ServerMsg {
@@ -31,6 +32,7 @@ impl Game {
                 turn: Player::Other,
             }),
             selected: Mutable::new(None),
+            done: Mutable::new(false),
         }
     }
 
@@ -55,6 +57,29 @@ impl Game {
                 .style("left", "0")
             })
             .child(html!("main", {
+                .child(html!("div", {
+                    .class(class!{
+                        .style("position", "absolute")
+                        .style("width", "400px")
+                        .style("height", "400px")
+                        .style("display", "flex")
+                        .style("align-items", "center")
+                        .style("justify-content", "center")
+                    })
+                    .child(html!("div", {
+                        .class(class!{
+                            .style("background", "white")
+                            .style("border", "solid")
+                        })
+                        .text_signal(self.game.signal_ref(move |g| {
+                            match g.turn {
+                                Player::You => "You lost",
+                                Player::Other => "You won",
+                            }
+                        }))
+                        .visible_signal(self.done.signal())
+                    }))
+                }))
                 .children((0..5).map(|y|{
                     html!("div", {
                         .children((0..5).map(|x|{
