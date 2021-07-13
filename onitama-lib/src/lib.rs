@@ -17,15 +17,7 @@ pub struct ClientMsg {
 pub struct ServerMsg {
     pub board: [Option<Piece>; 25],
     pub cards: [usize; 5],
-    pub state: GameState,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum GameState {
-    Waiting,
-    Playing,
-    Win,
-    Loss,
+    pub turn: Player,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -36,8 +28,8 @@ pub enum PieceKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Player {
-    Black,
-    White,
+    Other,
+    You,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -67,7 +59,7 @@ pub fn apply_offset(offset: usize, from: usize) -> Option<usize> {
     }
 }
 
-const KING: Option<Piece> = Some(Piece(Player::White, PieceKind::King));
+const KING: Option<Piece> = Some(Piece(Player::You, PieceKind::King));
 
 pub fn is_mate(game: &ServerMsg) -> bool {
     is_check(game, 22) || {
@@ -77,9 +69,9 @@ pub fn is_mate(game: &ServerMsg) -> bool {
 
 pub fn check_move(game: &ServerMsg, from: usize, to: usize) -> Option<()> {
     let piece = game.board[from]?;
-    (piece.0 == Player::White).as_option()?;
+    (piece.0 == Player::You).as_option()?;
     let other = game.board[to];
-    (other.is_none() || other.unwrap().0 == Player::Black).as_option()?;
+    (other.is_none() || other.unwrap().0 == Player::Other).as_option()?;
     let offset = get_offset(to, from)?;
     (in_card(offset, game.cards[0]) || in_card(offset, game.cards[1])).as_option()?;
 
@@ -104,7 +96,7 @@ fn is_check_card(game: &ServerMsg, from: usize, card: usize) -> bool {
         .flatten()
         .any(|pos| {
             let piece = game.board[pos];
-            piece.is_some() && piece.unwrap().0 == Player::Black
+            piece.is_some() && piece.unwrap().0 == Player::Other
         })
 }
 

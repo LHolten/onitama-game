@@ -4,7 +4,7 @@ mod connection;
 use dominator::{class, html, Dom};
 use futures_signals::signal::{Mutable, Signal};
 use once_cell::sync::Lazy;
-use onitama_lib::{GameState, ServerMsg};
+use onitama_lib::{Player, ServerMsg};
 use web_sys::WebSocket;
 
 use crate::connection::game_dom;
@@ -28,7 +28,7 @@ impl Game {
             game: Mutable::new(ServerMsg {
                 board: Default::default(),
                 cards: Default::default(),
-                state: GameState::Waiting,
+                turn: Player::Other,
             }),
             selected: Mutable::new(None),
         }

@@ -7,7 +7,7 @@ use dominator::{
 };
 use futures_signals::signal::{Signal, SignalExt};
 use once_cell::sync::Lazy;
-use onitama_lib::{check_move, ClientMsg, GameState, Piece, PieceKind, Player};
+use onitama_lib::{check_move, ClientMsg, Piece, PieceKind, Player};
 use rmp_serde::Serializer;
 use serde::Serialize;
 use web_sys::WebSocket;
@@ -62,20 +62,17 @@ impl Game {
                 let from = selected.get();
                 let mut g = game.lock_mut();
                 let square = g.board[pos];
-                if g.state != GameState::Playing {
+                if g.turn != Player::You {
                     return ;
                 }
-                if from != Some(pos) && square.is_some() && square.unwrap().0 == Player::White {
+                if from != Some(pos) && square.is_some() && square.unwrap().0 == Player::You {
                     selected.set(Some(pos));
                 } else if from.is_some() && check_move(&*g, from.unwrap(), pos).is_some() {
                     selected.set(None);
-
-                    g.state = GameState::Waiting;
-                    let from = from.unwrap();
-                    g.board[pos] = g.board[from].take();
+                    g.turn = Player::Other;
 
                     let mut buf = Vec::new();
-                    let msg = ClientMsg { from, to: pos };
+                    let msg = ClientMsg { from: from.unwrap(), to: pos };
                     msg.serialize(&mut Serializer::new(&mut buf)).unwrap();
                     socket_clone.send_with_u8_array(&buf).unwrap();
                 } else {
@@ -83,7 +80,7 @@ impl Game {
                 }
             })
             .apply(|mut dom| {
-                for player in [Player::Black, Player::White] {
+                for player in [Player::Other, Player::You] {
                     for kind in [PieceKind::Pawn, PieceKind::King] {
                         let piece = Piece(player, kind);
                         dom = dom.child(
@@ -128,10 +125,10 @@ impl Game {
 
 fn piece_render(piece: &Piece) -> DomBuilder<HtmlElement> {
     let file = match piece {
-        Piece(Player::White, PieceKind::King) => "wB.svg",
-        Piece(Player::White, PieceKind::Pawn) => "wP.svg",
-        Piece(Player::Black, PieceKind::King) => "bB.svg",
-        Piece(Player::Black, PieceKind::Pawn) => "bP.svg",
+        Piece(Player::You, PieceKind::King) => "wB.svg",
+        Piece(Player::You, PieceKind::Pawn) => "wP.svg",
+        Piece(Player::Other, PieceKind::King) => "bB.svg",
+        Piece(Player::Other, PieceKind::Pawn) => "bP.svg",
     };
 
     DomBuilder::new_html("img")
