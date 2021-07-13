@@ -3,7 +3,7 @@ mod connection;
 
 use dominator::{class, html, Dom};
 use futures_signals::signal::Mutable;
-use onitama_lib::{Piece, Player, ServerMsg};
+use onitama_lib::{GameState, Piece, Player, ServerMsg};
 use web_sys::WebSocket;
 
 use crate::connection::game_dom;
@@ -14,6 +14,7 @@ pub struct Game {
     cards: [Mutable<usize>; 5], // things that depend on this are updated  with "selected"
     selected: Mutable<Option<usize>>,
     turn: Mutable<Player>,
+    state: Mutable<GameState>,
 }
 
 pub fn main() {
@@ -35,6 +36,7 @@ impl Game {
             cards: Default::default(),
             selected: Mutable::new(None),
             turn: Mutable::new(Player::White),
+            state: Mutable::new(GameState::Waiting),
         }
     }
 
@@ -70,6 +72,7 @@ impl Game {
         for (from, to) in msg.cards.iter().zip(self.cards.iter()) {
             to.set_neq(*from);
         }
-        self.turn.set_neq(msg.turn)
+        self.turn.set_neq(msg.turn);
+        self.state.set_neq(msg.state);
     }
 }

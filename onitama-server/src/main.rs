@@ -1,4 +1,6 @@
 use onitama_lib::{get_offset, in_card, ClientMsg, Piece, PieceKind, Player, ServerMsg};
+use rand::prelude::SliceRandom;
+use rand::thread_rng;
 use rmp_serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
@@ -99,10 +101,18 @@ fn new_game() -> ServerMsg {
     }
     board.extend_from_slice(&home_row(Player::White));
 
+    let cards: [usize; 16] = (0..16).collect::<Vec<usize>>().try_into().unwrap();
+
     ServerMsg {
         board: board.try_into().unwrap(),
-        cards: [0; 5],
+        cards: cards
+            .choose_multiple(&mut thread_rng(), 5)
+            .copied()
+            .collect::<Vec<usize>>()
+            .try_into()
+            .unwrap(),
         turn: Player::Black,
+        state: onitama_lib::GameState::Playing,
     }
 }
 

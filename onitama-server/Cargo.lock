@@ -172,6 +172,7 @@ name = "onitama-server"
 version = "0.1.0"
 dependencies = [
  "onitama-lib",
+ "rand",
  "rmp-serde",
  "serde",
  "tungstenite",
