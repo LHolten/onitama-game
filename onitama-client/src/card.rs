@@ -26,8 +26,8 @@ pub fn render_card(game: &Mutable<ServerMsg>, card: usize, rotated: bool) -> Dom
 }
 
 fn render_card_square(game: &Mutable<ServerMsg>, card: usize, pos: usize, rotated: bool) -> Dom {
-    static CARD_YES: Lazy<String> = Lazy::new(|| card_colour("#78ac5a"));
-    static CARD_NO: Lazy<String> = Lazy::new(|| card_colour("#f0d9b5"));
+    static CARD_YES: Lazy<String> = Lazy::new(|| card_colour("#4b8c27"));
+    static CARD_NO: Lazy<String> = Lazy::new(|| card_colour("#302e2c"));
     static CARD_WHITE: Lazy<String> = Lazy::new(|| card_colour("white"));
     static CARD_BLACK: Lazy<String> = Lazy::new(|| card_colour("black"));
 
