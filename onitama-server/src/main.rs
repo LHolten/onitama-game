@@ -8,24 +8,49 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::mem::swap;
 use std::net::{TcpListener, TcpStream};
+use std::thread;
 use tungstenite::server::accept;
+use tungstenite::util::NonBlockingResult;
 use tungstenite::{Message, WebSocket};
 
 fn main() {
     let server = TcpListener::bind("127.0.0.1:9001").unwrap();
     let mut incoming = server.incoming();
-    while let Some(client1) = incoming.next() {
-        let mut client1 = accept(client1.unwrap()).unwrap();
-        let mut client2 = accept(incoming.next().unwrap().unwrap()).unwrap();
+    while let Some(Ok(client1)) = incoming.next() {
+        client1.set_nodelay(true).unwrap();
+        if let Ok(mut client1) = accept(client1) {
+            while let Some(Ok(client2)) = incoming.next() {
+                client2.set_nodelay(true).unwrap();
+                if let Ok(client2) = accept(client2) {
+                    client1.get_ref().set_nonblocking(true).unwrap();
+                    let disconnected = loop {
+                        match client1.read_message().no_block() {
+                            Ok(None) => break false,
+                            Ok(_) => {}
+                            Err(_) => break true,
+                        }
+                    };
+                    client1.get_ref().set_nonblocking(false).unwrap();
 
-        let mut game = new_game();
-
-        while game_turn(&mut game, &mut client1, &mut client2).is_some() {
-            swap(&mut client1, &mut client2);
+                    if !disconnected {
+                        thread::spawn(|| handle_game(client1, client2));
+                        break;
+                    }
+                    client1 = client2;
+                }
+            }
         }
-
-        println!("game over");
     }
+}
+
+fn handle_game(mut conn1: WebSocket<TcpStream>, mut conn2: WebSocket<TcpStream>) {
+    let mut game = new_game();
+
+    while game_turn(&mut game, &mut conn1, &mut conn2).is_some() {
+        swap(&mut conn1, &mut conn2);
+    }
+
+    println!("game over");
 }
 
 fn game_turn(

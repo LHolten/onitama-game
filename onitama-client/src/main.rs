@@ -1,8 +1,8 @@
 mod board;
 mod connection;
 
-use dominator::{class, html, text_signal, Dom};
-use futures_signals::signal::{Mutable, Signal};
+use dominator::{class, html, Dom};
+use futures_signals::signal::{Mutable, Signal, SignalExt};
 use once_cell::sync::Lazy;
 use onitama_lib::{Player, ServerMsg};
 use web_sys::WebSocket;
@@ -77,7 +77,7 @@ impl App {
                                 Player::Other => "You won",
                             }
                         }))
-                        .visible_signal(self.done.signal())
+                        .visible_signal(self.done.signal().dedupe())
                     }))
                 }))
                 .children((0..5).map(|y|{
