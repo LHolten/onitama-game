@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use dominator::{animation::timestamps, class, html, Dom};
 use futures_signals::signal::{Mutable, SignalExt};
-use numtoa::NumToA;
 use once_cell::sync::Lazy;
 use onitama_lib::{Player, ServerMsg};
 use web_sys::WebSocket;
@@ -25,8 +24,11 @@ pub fn main() {
     #[cfg(debug_assertions)]
     console_error_panic_hook::set_once();
 
-    // dominator::append_dom(&dominator::body(), game_dom("wss://server.lucasholten.com"));
-    dominator::append_dom(&dominator::body(), game_dom("ws://127.0.0.1:9001"));
+    dominator::append_dom(
+        &dominator::body(),
+        game_dom("wss://server.lucasholten.com:9001"),
+    );
+    // dominator::append_dom(&dominator::body(), game_dom("ws://127.0.0.1:9001"));
 }
 
 impl App {
@@ -170,10 +172,14 @@ impl App {
 
 fn format_time(time: Duration) -> String {
     let time = time.as_secs();
-    let mut res = "0:00".to_string();
-    unsafe {
-        (time / 60).numtoa(10, &mut res.as_bytes_mut()[..1]);
-        (time % 60).numtoa(10, res.as_bytes_mut());
-    }
+    let mut res = String::with_capacity(4);
+    res.push(to_decimal(time / 60));
+    res.push(':');
+    res.push(to_decimal(time % 60 / 10));
+    res.push(to_decimal(time % 60));
     res
+}
+
+fn to_decimal(num: u64) -> char {
+    "0123456789".chars().nth(num as usize % 10).unwrap()
 }
