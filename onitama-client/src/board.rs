@@ -1,3 +1,4 @@
+use bincode::serialize;
 use dominator::{
     Dom, DomBuilder,
     __internal::{HtmlElement, SvgElement},
@@ -8,8 +9,6 @@ use dominator::{
 use futures_signals::signal::{Signal, SignalExt};
 use once_cell::sync::Lazy;
 use onitama_lib::{check_move, ClientMsg, Piece, PieceKind, Player};
-use rmp_serde::Serializer;
-use serde::Serialize;
 use web_sys::WebSocket;
 
 use crate::App;
@@ -71,9 +70,8 @@ impl App {
                     selected.set(None);
                     g.turn = Player::Other;
 
-                    let mut buf = Vec::new();
                     let msg = ClientMsg { from: from.unwrap(), to: pos };
-                    msg.serialize(&mut Serializer::new(&mut buf)).unwrap();
+                    let buf = serialize(&msg).unwrap();
                     socket_clone.send_with_u8_array(&buf).unwrap();
                 } else {
                     selected.set(None);

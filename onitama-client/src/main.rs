@@ -2,13 +2,11 @@ mod board;
 mod card;
 mod connection;
 
-use std::{
-    cmp::max,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
-use dominator::{animation::timestamps, class, html, text_signal, Dom};
-use futures_signals::signal::{Mutable, Signal, SignalExt};
+use dominator::{animation::timestamps, class, html, Dom};
+use futures_signals::signal::{Mutable, SignalExt};
+use numtoa::NumToA;
 use once_cell::sync::Lazy;
 use onitama_lib::{Player, ServerMsg};
 use web_sys::WebSocket;
@@ -27,6 +25,7 @@ pub fn main() {
     #[cfg(debug_assertions)]
     console_error_panic_hook::set_once();
 
+    // dominator::append_dom(&dominator::body(), game_dom("wss://server.lucasholten.com"));
     dominator::append_dom(&dominator::body(), game_dom("ws://127.0.0.1:9001"));
 }
 
@@ -167,19 +166,14 @@ impl App {
             }))
         })
     }
-
-    fn card_name(&self, card_pos: usize) -> impl Signal<Item = &'static str> {
-        self.game
-            .signal_ref(move |game| CARD_NAMES[game.cards[card_pos]])
-    }
 }
 
-const CARD_NAMES: &[&str] = &[
-    "ox", "boar", "horse", "elephant", "crab", "tiger", "monkey", "crane", "dragon", "mantis",
-    "frog", "rabbit", "goose", "rooster", "eel", "cobra",
-];
-
 fn format_time(time: Duration) -> String {
-    let time = time.as_secs_f64();
-    format!("{}:{:0>2}", (time / 60.) as u32, time as u32 % 60)
+    let time = time.as_secs();
+    let mut res = "0:00".to_string();
+    unsafe {
+        (time / 60).numtoa(10, &mut res.as_bytes_mut()[..1]);
+        (time % 60).numtoa(10, res.as_bytes_mut());
+    }
+    res
 }

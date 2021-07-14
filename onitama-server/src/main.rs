@@ -1,10 +1,9 @@
+use bincode::{deserialize, serialize};
 use onitama_lib::{
     check_move, get_offset, in_card, is_mate, ClientMsg, Piece, PieceKind, Player, ServerMsg,
 };
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
-use rmp_serde::{Deserializer, Serializer};
-use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::mem::swap;
 use std::net::{TcpListener, TcpStream};
@@ -67,15 +66,13 @@ fn game_turn(
     conn_curr: &mut WebSocket<TcpStream>,
     conn_other: &mut WebSocket<TcpStream>,
 ) -> Option<()> {
-    let mut buf = Vec::new();
-    game.serialize(&mut Serializer::new(&mut buf)).unwrap();
+    let buf = serialize(&game).unwrap();
     conn_other.write_message(Message::Binary(buf)).ok()?;
     conn_other.write_pending().ok()?;
 
     mirror_game(game);
 
-    let mut buf = Vec::new();
-    game.serialize(&mut Serializer::new(&mut buf)).unwrap();
+    let buf = serialize(&game).unwrap();
     conn_curr.write_message(Message::Binary(buf)).ok()?;
     conn_curr.write_pending().ok()?;
 
@@ -93,7 +90,7 @@ fn game_turn(
         conn_curr.get_ref().set_read_timeout(Some(timeout)).unwrap();
         match conn_curr.read_message().ok()? {
             Message::Binary(data) => {
-                break ClientMsg::deserialize(&mut Deserializer::new(&data[..])).ok()?;
+                break deserialize(&data[..]).ok()?;
             }
             Message::Ping(_) => conn_curr.write_pending().ok()?,
             _ => return None,

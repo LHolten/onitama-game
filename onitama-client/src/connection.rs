@@ -1,8 +1,7 @@
 use crate::App;
+use bincode::deserialize;
 use dominator::Dom;
 use onitama_lib::ServerMsg;
-use rmp_serde::Deserializer;
-use serde::Deserialize;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::{window, MessageEvent};
 
@@ -18,7 +17,7 @@ pub fn game_dom(url: &str) -> Dom {
         let buf = e.data().dyn_into::<js_sys::ArrayBuffer>().unwrap();
         let array = js_sys::Uint8Array::new(&buf).to_vec();
 
-        let msg = ServerMsg::deserialize(&mut Deserializer::new(&array[..])).unwrap();
+        let msg: ServerMsg = deserialize(&array[..]).unwrap();
         game_clone.set(msg);
         timestamp_clone.set(window().unwrap().performance().unwrap().now())
     }) as Box<dyn FnMut(MessageEvent)>);
