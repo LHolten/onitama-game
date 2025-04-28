@@ -1,13 +1,10 @@
 use bincode::{deserialize, serialize};
-use native_tls::{Identity, TlsAcceptor, TlsStream};
 use onitama_lib::{
     check_move, get_offset, in_card, is_mate, ClientMsg, Piece, PieceKind, Player, ServerMsg,
 };
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::convert::TryInto;
-use std::fs::File;
-use std::io::Read;
 use std::mem::swap;
 use std::net::{TcpListener, TcpStream};
 use std::thread;
@@ -17,20 +14,13 @@ use tungstenite::util::NonBlockingResult;
 use tungstenite::{Message, WebSocket};
 
 fn main() {
-    let mut file = File::open("certificate.pfx").unwrap();
-    let mut identity = vec![];
-    file.read_to_end(&mut identity).unwrap();
-    let identity = Identity::from_pkcs12(&identity, "grid").unwrap();
-
-    let acceptor = TlsAcceptor::new(identity).unwrap();
-
     let server = TcpListener::bind("0.0.0.0:9001").unwrap();
     let mut incoming = server.incoming();
     while let Some(Ok(client1)) = incoming.next() {
-        if let Some(mut client1) = acceptor.accept(client1).ok().and_then(|s| accept(s).ok()) {
+        if let Some(mut client1) = accept(client1).ok() {
             while let Some(Ok(client2)) = incoming.next() {
-                if let Some(client2) = acceptor.accept(client2).ok().and_then(|s| accept(s).ok()) {
-                    client1.get_ref().get_ref().set_nonblocking(true).unwrap();
+                if let Some(client2) = accept(client2).ok() {
+                    client1.get_ref().set_nonblocking(true).unwrap();
                     let disconnected = loop {
                         match client1.read_message().no_block() {
                             Ok(None) => break false,
@@ -38,7 +28,7 @@ fn main() {
                             Err(_) => break true,
                         }
                     };
-                    client1.get_ref().get_ref().set_nonblocking(false).unwrap();
+                    client1.get_ref().set_nonblocking(false).unwrap();
 
                     if !disconnected {
                         thread::spawn(|| handle_game(client1, client2));
@@ -51,11 +41,11 @@ fn main() {
     }
 }
 
-type WS = WebSocket<TlsStream<TcpStream>>;
+type WS = WebSocket<TcpStream>;
 
 fn handle_game(mut conn1: WS, mut conn2: WS) {
-    conn1.get_ref().get_ref().set_nodelay(true).unwrap();
-    conn2.get_ref().get_ref().set_nodelay(true).unwrap();
+    conn1.get_ref().set_nodelay(true).unwrap();
+    conn2.get_ref().set_nodelay(true).unwrap();
 
     let mut game = new_game();
 
@@ -96,11 +86,7 @@ fn game_turn(game: &mut ServerMsg, conn_curr: &mut WS, conn_other: &mut WS) -> O
         if timeout.is_zero() {
             return None;
         }
-        conn_curr
-            .get_ref()
-            .get_ref()
-            .set_read_timeout(Some(timeout))
-            .unwrap();
+        conn_curr.get_ref().set_read_timeout(Some(timeout)).unwrap();
         match conn_curr.read_message().ok()? {
             Message::Binary(data) => {
                 break deserialize(&data[..]).ok()?;
