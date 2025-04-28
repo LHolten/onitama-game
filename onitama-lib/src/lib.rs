@@ -4,6 +4,7 @@ use boolinator::Boolinator;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::{max, min},
+    convert::TryInto,
     mem::{replace, take},
     ops::Not,
     time::Duration,
@@ -15,12 +16,190 @@ pub struct ClientMsg {
     pub to: usize,
 }
 
+impl ClientMsg {
+    // pub fn format_litama(self, match_id: String, token: String) -> String {}
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "messageType")]
+#[serde(rename_all = "camelCase")]
+#[serde(rename_all_fields = "camelCase")]
+pub enum LitamaMsg {
+    Create {
+        match_id: String,
+        token: String,
+        index: usize,
+    },
+    Join {
+        match_id: String,
+        token: String,
+        index: usize,
+    },
+    State {
+        match_id: String,
+        #[serde(flatten)]
+        state: State,
+    },
+    Move {
+        match_id: String,
+    },
+    Spectate {
+        match_id: String,
+    },
+    Error {
+        match_id: String,
+        error: String,
+        query: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all_fields = "camelCase")]
+#[serde(tag = "gameState")]
+pub enum State {
+    #[serde(rename = "waiting for player")]
+    Waiting { usernames: Sides<String> },
+    #[serde(rename = "in progress")]
+    InProgress {
+        usernames: Sides<String>,
+        #[serde(flatten)]
+        extra: ExtraState,
+    },
+    #[serde(rename = "ended")]
+    Ended {
+        usernames: Sides<String>,
+        #[serde(flatten)]
+        extra: ExtraState,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtraState {
+    indices: Sides<usize>,
+    current_turn: Color,
+    cards: Cards,
+    starting_cards: Cards,
+    moves: Vec<String>,
+    board: String,
+    winner: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Sides<T> {
+    blue: T,
+    red: T,
+}
+
+impl<T> Sides<T> {
+    pub fn get(self, c: Color) -> (T, T) {
+        match c {
+            Color::Blue => (self.blue, self.red),
+            Color::Red => (self.red, self.blue),
+        }
+    }
+}
+
+impl Sides<usize> {
+    pub fn find(&self, idx: usize) -> Color {
+        if self.blue == idx {
+            Color::Blue
+        } else {
+            assert_eq!(self.red, idx);
+            Color::Red
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Cards {
+    #[serde(flatten)]
+    players: Sides<Vec<String>>,
+    side: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Color {
+    Blue,
+    Red,
+}
+
+impl Color {
+    pub fn other(self) -> Color {
+        match self {
+            Color::Blue => Color::Red,
+            Color::Red => Color::Blue,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerMsg {
     pub board: [Option<Piece>; 25],
     pub cards: [usize; 5],
     pub timers: [Duration; 2],
     pub turn: Player,
+}
+
+impl ServerMsg {
+    pub fn from_state(state: State, idx: usize) -> Self {
+        let (State::InProgress { extra, .. } | State::Ended { extra, .. }) = state else {
+            return Self {
+                board: Default::default(),
+                cards: Default::default(),
+                turn: Player::Other,
+                timers: [Duration::ZERO; 2],
+            };
+        };
+
+        let my_color = extra.indices.find(idx);
+        let (my_cards, other_cards) = extra.cards.players.get(my_color);
+        let all_cards: Vec<_> = my_cards
+            .into_iter()
+            .chain(vec![extra.cards.side])
+            .chain(other_cards)
+            .map(|name| CARDS.iter().position(|c| c.0 == name).unwrap())
+            .collect();
+
+        let (blue_player, red_player) = match my_color {
+            Color::Blue => (Player::You, Player::Other),
+            Color::Red => (Player::Other, Player::You),
+        };
+        let mut board: Vec<_> = extra
+            .board
+            .chars()
+            .map(|c| {
+                [
+                    None,
+                    Some(Piece(blue_player, PieceKind::Pawn)),
+                    Some(Piece(blue_player, PieceKind::King)),
+                    Some(Piece(red_player, PieceKind::Pawn)),
+                    Some(Piece(red_player, PieceKind::King)),
+                ][c.to_digit(10).unwrap() as usize]
+            })
+            .collect();
+
+        board[0..5].reverse();
+        board[5..10].reverse();
+        board[10..15].reverse();
+        board[15..20].reverse();
+        board[20..25].reverse();
+        if my_color == Color::Blue {
+            board.reverse();
+        }
+
+        Self {
+            timers: [Duration::ZERO; 2],
+            turn: if extra.current_turn == my_color {
+                Player::You
+            } else {
+                Player::Other
+            },
+            cards: all_cards.try_into().unwrap(),
+            board: board.try_into().unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -98,6 +277,7 @@ fn is_check(game: &ServerMsg) -> bool {
 
 fn is_check_card(game: &ServerMsg, from: usize, card: usize) -> bool {
     CARDS[card]
+        .1
         .iter()
         .map(|&offset| apply_offset(offset, from))
         .flatten()
@@ -112,24 +292,30 @@ fn diff(a: usize, b: usize) -> usize {
 }
 
 pub fn in_card(offset: usize, card: usize) -> bool {
-    CARDS[card].contains(&offset)
+    CARDS[card].1.contains(&offset)
 }
 
-const CARDS: &[&[usize]] = &[
-    &[7, 13, 17],
-    &[7, 11, 13],
-    &[7, 11, 17],
-    &[6, 8, 11, 13],
-    &[7, 10, 14],
-    &[2, 17],
-    &[6, 8, 16, 18],
-    &[7, 16, 18],
-    &[5, 9, 16, 18],
-    &[6, 8, 17],
-    &[6, 10, 18],
-    &[8, 14, 16],
-    &[6, 11, 13, 18],
-    &[8, 11, 13, 16],
-    &[6, 13, 16],
-    &[8, 11, 18],
+// 0 1 2 3 4  00
+// 5 6 7 8 9  00
+// 0 1 2 3 4  10
+// 5 6 7 8 9  10
+// 0 1 2 3 4  20
+
+const CARDS: &[(&str, &[usize])] = &[
+    ("ox", &[7, 13, 17]),
+    ("boar", &[7, 11, 13]),
+    ("horse", &[7, 11, 17]),
+    ("elephant", &[6, 8, 11, 13]),
+    ("crab", &[7, 10, 14]),
+    ("tiger", &[2, 17]),
+    ("monkey", &[6, 8, 16, 18]),
+    ("crane", &[7, 16, 18]),
+    ("dragon", &[5, 9, 16, 18]),
+    ("mantis", &[6, 8, 17]),
+    ("frog", &[6, 10, 18]),
+    ("rabbit", &[8, 14, 16]),
+    ("goose", &[6, 11, 13, 18]),
+    ("rooster", &[8, 11, 13, 16]),
+    ("eel", &[6, 13, 16]),
+    ("cobra", &[8, 11, 18]),
 ];

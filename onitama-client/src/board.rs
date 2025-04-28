@@ -1,4 +1,5 @@
-use bincode::serialize;
+use std::sync::LazyLock;
+
 use dominator::{
     Dom, DomBuilder,
     __internal::{HtmlElement, SvgElement},
@@ -7,7 +8,7 @@ use dominator::{
     html, svg,
 };
 use futures_signals::signal::{Signal, SignalExt};
-use once_cell::sync::Lazy;
+
 use onitama_lib::{check_move, ClientMsg, Piece, PieceKind, Player};
 use web_sys::WebSocket;
 
@@ -19,7 +20,7 @@ pub enum Overlay {
     Dot,
 }
 
-static OVERLAY_CLASS: Lazy<String> = Lazy::new(|| {
+static OVERLAY_CLASS: LazyLock<String> = LazyLock::new(|| {
     class! {
         .style("position", "absolute")
     }
@@ -27,7 +28,7 @@ static OVERLAY_CLASS: Lazy<String> = Lazy::new(|| {
 
 impl App {
     pub fn render_square(&self, pos: usize, socket: &WebSocket) -> Dom {
-        static SPAN_DARK: Lazy<String> = Lazy::new(|| {
+        static SPAN_DARK: LazyLock<String> = LazyLock::new(|| {
             class! {
                 .style("display", "inline-block")
                 .style("vertical-align", "bottom")
@@ -37,7 +38,7 @@ impl App {
             }
         });
 
-        static SPAN_LIGHT: Lazy<String> = Lazy::new(|| {
+        static SPAN_LIGHT: LazyLock<String> = LazyLock::new(|| {
             class! {
                 .style("display", "inline-block")
                 .style("vertical-align", "bottom")
@@ -71,8 +72,8 @@ impl App {
                     g.turn = Player::Other;
 
                     let msg = ClientMsg { from: from.unwrap(), to: pos };
-                    let buf = serialize(&msg).unwrap();
-                    socket_clone.send_with_u8_array(&buf).unwrap();
+                    let buf = serde_json::to_string(&msg).unwrap();
+                    socket_clone.send_with_str(&buf).unwrap();
                 } else {
                     selected.set(None);
                 }

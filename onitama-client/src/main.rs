@@ -2,11 +2,10 @@ mod board;
 mod card;
 mod connection;
 
-use std::time::Duration;
+use std::{cell::OnceCell, rc::Rc, sync::LazyLock, time::Duration};
 
 use dominator::{animation::timestamps, class, html, Dom};
 use futures_signals::signal::{Mutable, SignalExt};
-use once_cell::sync::Lazy;
 use onitama_lib::{Player, ServerMsg};
 use web_sys::WebSocket;
 
@@ -18,6 +17,7 @@ pub struct App {
     selected: Mutable<Option<usize>>,
     timestamp: Mutable<f64>,
     done: Mutable<bool>,
+    info: Rc<OnceCell<(String, String, usize)>>,
 }
 
 pub fn main() {
@@ -28,7 +28,10 @@ pub fn main() {
     //     &dominator::body(),
     //     game_dom("wss://server.lucasholten.com:9001"),
     // );
-    dominator::append_dom(&dominator::body(), game_dom("ws://127.0.0.1:9001"));
+    dominator::append_dom(
+        &dominator::body(),
+        game_dom("wss://server.lucasholten.com/onitama"),
+    );
 }
 
 impl App {
@@ -43,11 +46,12 @@ impl App {
             selected: Mutable::new(None),
             timestamp: Mutable::new(0.),
             done: Mutable::new(false),
+            info: Rc::new(OnceCell::new()),
         }
     }
 
     fn render(&self, socket: &WebSocket) -> Dom {
-        static TEXT: Lazy<String> = Lazy::new(|| {
+        static TEXT: LazyLock<String> = LazyLock::new(|| {
             class! {
                 .style("color", "white")
                 .style("font-size", "xxx-large")
@@ -55,7 +59,7 @@ impl App {
             }
         });
 
-        static HIDDEN: Lazy<String> = Lazy::new(|| {
+        static HIDDEN: LazyLock<String> = LazyLock::new(|| {
             class! {
                 .style("visibility", "hidden")
             }

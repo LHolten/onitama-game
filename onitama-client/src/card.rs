@@ -1,10 +1,12 @@
+use std::sync::LazyLock;
+
 use dominator::{class, html, Dom};
 use futures_signals::signal::{Mutable, SignalExt};
-use once_cell::sync::Lazy;
+
 use onitama_lib::{in_card, ServerMsg};
 
 pub fn render_card(game: &Mutable<ServerMsg>, card: usize, rotated: bool) -> Dom {
-    static CARD: Lazy<String> = Lazy::new(|| {
+    static CARD: LazyLock<String> = LazyLock::new(|| {
         class! {
             .style("display", "inline-block")
             .style("margin", "10px")
@@ -26,10 +28,10 @@ pub fn render_card(game: &Mutable<ServerMsg>, card: usize, rotated: bool) -> Dom
 }
 
 fn render_card_square(game: &Mutable<ServerMsg>, card: usize, pos: usize, rotated: bool) -> Dom {
-    static CARD_YES: Lazy<String> = Lazy::new(|| card_colour("#4b8c27"));
-    static CARD_NO: Lazy<String> = Lazy::new(|| card_colour("#302e2c"));
-    static CARD_WHITE: Lazy<String> = Lazy::new(|| card_colour("white"));
-    static CARD_BLACK: Lazy<String> = Lazy::new(|| card_colour("black"));
+    static CARD_YES: LazyLock<String> = LazyLock::new(|| card_colour("#4b8c27"));
+    static CARD_NO: LazyLock<String> = LazyLock::new(|| card_colour("#302e2c"));
+    static CARD_WHITE: LazyLock<String> = LazyLock::new(|| card_colour("white"));
+    static CARD_BLACK: LazyLock<String> = LazyLock::new(|| card_colour("black"));
 
     if pos == 12 {
         html!("div", {
