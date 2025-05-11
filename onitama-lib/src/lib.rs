@@ -140,16 +140,18 @@ pub struct ServerMsg {
     pub cards: [usize; 5],
     pub timers: [Duration; 2],
     pub turn: Player,
+    pub game_id: String,
 }
 
 impl ServerMsg {
-    pub fn from_state(state: State, idx: usize) -> Self {
+    pub fn from_state(state: State, idx: usize, game_id: String) -> Self {
         let (State::InProgress { extra, .. } | State::Ended { extra, .. }) = state else {
             return Self {
                 board: Default::default(),
                 cards: Default::default(),
                 turn: Player::Other,
                 timers: [Duration::ZERO; 2],
+                game_id,
             };
         };
 
@@ -198,6 +200,7 @@ impl ServerMsg {
             },
             cards: all_cards.try_into().unwrap(),
             board: board.try_into().unwrap(),
+            game_id,
         }
     }
 }

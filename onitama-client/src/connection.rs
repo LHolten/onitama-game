@@ -1,4 +1,5 @@
 use core::str;
+use std::cell::OnceCell;
 
 use crate::App;
 use dominator::Dom;
@@ -14,7 +15,7 @@ pub fn game_dom(url: &str) -> Dom {
 
     let game_clone = app.game.clone();
     let timestamp_clone = app.timestamp.clone();
-    let info_clone = app.info.clone();
+    let info_clone = OnceCell::new();
     let socket_clone = socket.clone();
     let onmessage = Closure::wrap(Box::new(move |e: MessageEvent| {
         let buf = e.data().as_string().unwrap();
@@ -37,7 +38,11 @@ pub fn game_dom(url: &str) -> Dom {
                 info_clone.set((match_id, token, index)).unwrap();
             }
             LitamaMsg::State { match_id: _, state } => {
-                game_clone.set(ServerMsg::from_state(state, info_clone.get().unwrap().2));
+                game_clone.set(ServerMsg::from_state(
+                    state,
+                    info_clone.get().unwrap().2,
+                    info_clone.get().unwrap().0.clone(),
+                ));
                 timestamp_clone.set(window().unwrap().performance().unwrap().now())
             }
             _ => {}

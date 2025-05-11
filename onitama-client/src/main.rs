@@ -2,7 +2,7 @@ mod board;
 mod card;
 mod connection;
 
-use std::{cell::OnceCell, rc::Rc, sync::LazyLock, time::Duration};
+use std::{sync::LazyLock, time::Duration};
 
 use dominator::{animation::timestamps, class, html, Dom};
 use futures_signals::signal::{Mutable, SignalExt};
@@ -17,7 +17,6 @@ pub struct App {
     selected: Mutable<Option<usize>>,
     timestamp: Mutable<f64>,
     done: Mutable<bool>,
-    info: Rc<OnceCell<(String, String, usize)>>,
 }
 
 pub fn main() {
@@ -42,11 +41,11 @@ impl App {
                 cards: Default::default(),
                 turn: Player::Other,
                 timers: [Duration::ZERO; 2],
+                game_id: String::new(),
             }),
             selected: Mutable::new(None),
             timestamp: Mutable::new(0.),
             done: Mutable::new(false),
-            info: Rc::new(OnceCell::new()),
         }
     }
 
@@ -169,6 +168,15 @@ impl App {
                             format_time(time_left)
                     })})
                 }))
+            }))
+            .child(html!("a", {
+                .class(&*TEXT)
+                .attr_signal("href", {
+                    self.game.signal_ref(|game| {
+                        format!("https://l0laapk3.github.io/Onitama-client/#{}", &game.game_id)
+                    })
+                })
+                .text("join")
             }))
         })
     }
