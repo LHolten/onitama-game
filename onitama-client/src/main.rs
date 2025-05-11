@@ -6,7 +6,7 @@ use std::{sync::LazyLock, time::Duration};
 
 use dominator::{animation::timestamps, class, html, Dom};
 use futures_signals::signal::{Mutable, SignalExt};
-use onitama_lib::{Player, ServerMsg};
+use onitama_lib::{Color, Player, ServerMsg};
 use web_sys::WebSocket;
 
 use crate::{card::render_card, connection::game_dom};
@@ -17,6 +17,7 @@ pub struct App {
     selected: Mutable<Option<usize>>,
     timestamp: Mutable<f64>,
     done: Mutable<bool>,
+    info: Mutable<(String, String)>,
 }
 
 pub fn main() {
@@ -41,11 +42,12 @@ impl App {
                 cards: Default::default(),
                 turn: Player::Other,
                 timers: [Duration::ZERO; 2],
-                game_id: String::new(),
+                my_color: Color::Blue,
             }),
             selected: Mutable::new(None),
             timestamp: Mutable::new(0.),
             done: Mutable::new(false),
+            info: Mutable::new(("game_id".to_owned(), "token".to_owned())),
         }
     }
 
@@ -172,8 +174,8 @@ impl App {
             .child(html!("a", {
                 .class(&*TEXT)
                 .attr_signal("href", {
-                    self.game.signal_ref(|game| {
-                        format!("https://l0laapk3.github.io/Onitama-client/#{}", &game.game_id)
+                    self.info.signal_ref(|(game_id, _)| {
+                        format!("https://l0laapk3.github.io/Onitama-client/#{game_id}")
                     })
                 })
                 .text("join")

@@ -14,10 +14,18 @@ use std::{
 pub struct ClientMsg {
     pub from: usize,
     pub to: usize,
+    pub card: &'static str,
 }
 
 impl ClientMsg {
-    // pub fn format_litama(self, match_id: String, token: String) -> String {}
+    pub fn format_litama(self, match_id: String, token: String, color: Color) -> String {
+        format!(
+            "move {match_id} {token} {} {}{}",
+            self.card,
+            color.format_pos(self.from),
+            color.format_pos(self.to)
+        )
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -76,7 +84,7 @@ pub enum State {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtraState {
-    indices: Sides<usize>,
+    pub indices: Sides<usize>,
     current_turn: Color,
     cards: Cards,
     starting_cards: Cards,
@@ -132,6 +140,15 @@ impl Color {
             Color::Red => Color::Blue,
         }
     }
+
+    pub fn format_pos(self, mut pos: usize) -> String {
+        if self == Color::Red {
+            pos = 24 - pos;
+        }
+        let x = ['a', 'b', 'c', 'd', 'e'][pos % 5];
+        let y = 5 - (pos / 5);
+        format!("{x}{y}")
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -140,22 +157,11 @@ pub struct ServerMsg {
     pub cards: [usize; 5],
     pub timers: [Duration; 2],
     pub turn: Player,
-    pub game_id: String,
+    pub my_color: Color,
 }
 
 impl ServerMsg {
-    pub fn from_state(state: State, idx: usize, game_id: String) -> Self {
-        let (State::InProgress { extra, .. } | State::Ended { extra, .. }) = state else {
-            return Self {
-                board: Default::default(),
-                cards: Default::default(),
-                turn: Player::Other,
-                timers: [Duration::ZERO; 2],
-                game_id,
-            };
-        };
-
-        let my_color = extra.indices.find(idx);
+    pub fn from_state(extra: ExtraState, my_color: Color) -> Self {
         let (my_cards, other_cards) = extra.cards.players.get(my_color);
         let all_cards: Vec<_> = my_cards
             .into_iter()
@@ -200,7 +206,7 @@ impl ServerMsg {
             },
             cards: all_cards.try_into().unwrap(),
             board: board.try_into().unwrap(),
-            game_id,
+            my_color,
         }
     }
 }
@@ -257,20 +263,27 @@ pub fn is_mate(game: &mut ServerMsg) -> bool {
     !(0..25).any(|from| (0..25).any(|to| check_move(game, from, to).is_some()))
 }
 
-pub fn check_move(game: &mut ServerMsg, from: usize, to: usize) -> Option<()> {
+pub fn check_move(game: &mut ServerMsg, from: usize, to: usize) -> Option<&'static str> {
     let piece = game.board[from]?;
     (piece.0 == Player::You).as_option()?;
     let other = game.board[to];
     (other.is_none() || other.unwrap().0 == Player::Other).as_option()?;
-    let offset = get_offset(to, from)?;
-    (in_card(offset, game.cards[0]) || in_card(offset, game.cards[1])).as_option()?;
 
     let piece = take(&mut game.board[from]);
     let tmp = replace(&mut game.board[to], piece);
     let check = is_check(game);
     game.board[from] = replace(&mut game.board[to], tmp);
 
-    check.not().as_option()
+    check.not().as_option()?;
+
+    let offset = get_offset(to, from)?;
+    if in_card(offset, game.cards[0]) {
+        Some(CARDS[game.cards[0]].0)
+    } else if in_card(offset, game.cards[1]) {
+        Some(CARDS[game.cards[1]].0)
+    } else {
+        None
+    }
 }
 
 fn is_check(game: &ServerMsg) -> bool {

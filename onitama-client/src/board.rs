@@ -50,6 +50,7 @@ impl App {
 
         let selected = self.selected.clone();
         let game = self.game.clone();
+        let info = self.info.clone();
         let socket_clone = socket.clone();
 
         html!("span", {
@@ -68,11 +69,15 @@ impl App {
                 if from != Some(pos) && square.is_some() && square.unwrap().0 == Player::You {
                     selected.set(Some(pos));
                 } else if from.is_some() && check_move(&mut*g, from.unwrap(), pos).is_some() {
+                    let card = check_move(&mut*g, from.unwrap(), pos).unwrap();
+
                     selected.set(None);
                     g.turn = Player::Other;
 
-                    let msg = ClientMsg { from: from.unwrap(), to: pos };
-                    let buf = serde_json::to_string(&msg).unwrap();
+                    let msg = ClientMsg { from: from.unwrap(), to: pos, card };
+                    let info = info.get_cloned();
+
+                    let buf = msg.format_litama(info.0, info.1, g.my_color);
                     socket_clone.send_with_str(&buf).unwrap();
                 } else {
                     selected.set(None);
