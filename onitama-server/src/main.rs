@@ -47,7 +47,7 @@ impl<'t> IntoExpr<'t, Schema> for Uuid {
     }
 }
 
-struct Client {
+pub struct Client {
     responder: Responder,
     // these are game_ids
     subscriptions: Vec<String>,
@@ -115,7 +115,7 @@ pub fn handle_message(
     clients: &mut HashMap<u64, Client>,
     mut txn: TransactionMut<Schema>,
 ) -> Result<(), Box<dyn Error>> {
-    let client = clients.get(&client_id).unwrap();
+    let client = clients.get_mut(&client_id).unwrap();
 
     let Message::Text(msg) = message else {
         return Err("recieved binary!".into());
@@ -141,7 +141,7 @@ pub fn handle_message(
             create_token: blue_token,
             join_token: red_token,
             create_name: username,
-            join_name: None,
+            join_name: None::<String>,
             create_color: ["red", "blue"].choose(&mut rng).unwrap(),
             starting_cards: cards.join(","),
         })
@@ -167,7 +167,7 @@ pub fn handle_message(
         "join" => {
             let username = *parts.get(2).ok_or("expected username")?;
 
-            let mut m: Match!(join_token, join_name) = txn.query_one(FromExpr::from_expr(m_row));
+            let m: Match!(join_token, join_name) = txn.query_one(FromExpr::from_expr(m_row));
 
             if m.join_name.is_some() {
                 return Err("match is already joined".into());
@@ -198,11 +198,10 @@ pub fn handle_message(
                 match_id: match_id.to_owned(),
             });
 
-            let state = read_state(&txn, m_row);
             for other in clients.values() {
                 other.send_msg(LitamaMsg::State {
                     match_id: match_id.to_owned(),
-                    state,
+                    state: read_state(&txn, m_row), // TODO: maybe optimize this?
                 });
             }
         }
