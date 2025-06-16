@@ -31,6 +31,7 @@ pub mod vN {
         pub join_name: Option<String>,
 
         // either "red" or "blue", this is secret until the second player joins
+        // "red" is always the starting player?
         pub create_color: String,
         // concatenation of blue1,blue2,red1,red2,side
         pub starting_cards: String,

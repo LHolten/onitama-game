@@ -1,3 +1,5 @@
+pub mod state;
+
 extern crate serde;
 
 use boolinator::Boolinator;
