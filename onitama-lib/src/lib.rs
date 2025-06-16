@@ -55,7 +55,6 @@ pub enum LitamaMsg {
         match_id: String,
     },
     Error {
-        match_id: String,
         error: String,
         query: String,
     },

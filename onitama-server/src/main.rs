@@ -51,6 +51,12 @@ struct Client {
     subscriptions: Vec<String>,
 }
 
+impl Client {
+    pub fn send_msg(&self, msg: LitamaMsg) {
+        todo!()
+    }
+}
+
 fn main() {
     // listen for WebSockets on port 8080:
     let event_hub = simple_websockets::launch(8080).expect("failed to listen on port 8080");
@@ -83,10 +89,19 @@ fn main() {
                 clients.remove(&client_id);
             }
             Event::Message(client_id, message) => {
-                // retrieve this client's `Responder`:
-                let client = clients.get(&client_id).unwrap();
-                // echo the message back:
-                client.responder.send(message);
+                let txn = db_client.transaction_mut(&db);
+                if let Err(err) = handle_message(message.clone(), client_id, &mut clients, txn) {
+                    let client = clients.get(&client_id).unwrap();
+
+                    let query = match message {
+                        Message::Text(txt) => txt,
+                        Message::Binary(_) => "<binary data>".to_owned(),
+                    };
+                    let error = err.to_string();
+                    client.send_msg(LitamaMsg::Error { error, query });
+                    client.responder.close();
+                    clients.remove(&client_id);
+                }
             }
         }
     }
@@ -96,7 +111,7 @@ pub fn handle_message(
     message: Message,
     client_id: u64,
     clients: &mut HashMap<u64, Client>,
-    txn: &mut TransactionMut<Schema>,
+    mut txn: TransactionMut<Schema>,
 ) -> Result<(), Box<dyn Error>> {
     let client = clients.get(&client_id).unwrap();
 
@@ -105,7 +120,7 @@ pub fn handle_message(
     };
     let parts: Vec<_> = msg.split(" ").collect();
     let cmd = *parts.get(0).ok_or("expected command")?;
-    let server_msg = match cmd {
+    match cmd {
         "create" => {
             let username = *parts.get(1).ok_or("expected username")?;
 
@@ -129,11 +144,12 @@ pub fn handle_message(
                 starting_cards: cards.join(","),
             })
             .unwrap();
-            LitamaMsg::Create {
+
+            client.send_msg(LitamaMsg::Create {
                 match_id: match_id.to_string(),
                 token: blue_token.to_string(),
                 index: 0,
-            }
+            });
         }
         "join" => {
             let match_id = *parts.get(1).ok_or("expected match_id")?;
@@ -156,15 +172,53 @@ pub fn handle_message(
                 },
             );
 
-            LitamaMsg::Join {
+            client.send_msg(LitamaMsg::Join {
                 match_id: match_id.to_owned(),
                 token: m.join_token,
                 index: 1,
+            });
+        }
+        "state" => {
+            let match_id = *parts.get(1).ok_or("expected match_id")?;
+
+            let state = read_state(&txn, match_id)?;
+
+            client.send_msg(LitamaMsg::State {
+                match_id: match_id.to_owned(),
+                state,
+            });
+        }
+        "move" => {
+            let match_id = *parts.get(1).ok_or("expected match_id")?;
+
+            let state = read_state(&txn, match_id)?;
+
+            client.send_msg(LitamaMsg::Move {
+                match_id: match_id.to_owned(),
+            });
+
+            for other in clients.values() {
+                other.send_msg(LitamaMsg::State {
+                    match_id: match_id.to_owned(),
+                    state,
+                });
             }
         }
-        "state" => {}
-        "move" => {}
-        "spectate" => {}
+        "spectate" => {
+            let match_id = *parts.get(1).ok_or("expected match_id")?;
+
+            client.subscriptions.push(match_id.to_owned());
+
+            client.send_msg(LitamaMsg::Spectate {
+                match_id: match_id.to_owned(),
+            });
+
+            let state = read_state(&txn, match_id)?;
+            client.send_msg(LitamaMsg::State {
+                match_id: match_id.to_owned(),
+                state,
+            });
+        }
         _ => return Err("unknown command".into()),
     };
 
@@ -173,7 +227,7 @@ pub fn handle_message(
     Ok(())
 }
 
-pub fn read_state(txn: &Transaction<Schema>, match_id: String) -> Result<State, Box<dyn Error>> {
+pub fn read_state(txn: &Transaction<Schema>, match_id: &str) -> Result<State, Box<dyn Error>> {
     let m_row = txn
         .query_one(Match::unique(match_id))
         .ok_or("could not find match")?;
