@@ -9,6 +9,8 @@ pub struct Piece<Player> {
 
 pub struct State<Pos, Player> {
     pieces: HashMap<Pos, Piece<Player>>,
+    table_card: usize,
+    player_cards: HashMap<Player, [usize; 2]>,
     active_eq_red: bool,
 }
 
@@ -101,11 +103,13 @@ impl<A, B> State<A, B> {
     pub fn translate<X, Y>(self) -> State<X, Y>
     where
         X: Translate<A> + Eq + Hash,
-        Y: Translate<B>,
+        Y: Translate<B> + Eq + Hash,
     {
         let State {
             pieces,
             active_eq_red,
+            table_card,
+            player_cards,
         } = self;
 
         State {
@@ -122,6 +126,11 @@ impl<A, B> State<A, B> {
                 })
                 .collect(),
             active_eq_red,
+            table_card,
+            player_cards: player_cards
+                .into_iter()
+                .map(|(k, v)| (Y::translate(k, active_eq_red), v))
+                .collect(),
         }
     }
 }
