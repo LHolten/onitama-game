@@ -6,11 +6,15 @@ use boolinator::Boolinator;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::{max, min},
+    collections::HashMap,
     convert::TryInto,
+    iter::FromIterator,
     mem::{replace, take},
     ops::Not,
     time::Duration,
 };
+
+use crate::state::{Perspective, PlayerTurn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClientMsg {
@@ -161,41 +165,56 @@ pub struct ServerMsg {
     pub my_color: Color,
 }
 
+pub fn card_to_pos(name: String) -> usize {
+    CARDS.iter().position(|c| c.0 == name).unwrap()
+}
+
+pub fn player_card_to_pos(name: Vec<String>) -> [usize; 2] {
+    name.into_iter()
+        .map(card_to_pos)
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap()
+}
+
 impl ServerMsg {
     pub fn from_state(extra: ExtraState, my_color: Color) -> Self {
-        let (my_cards, other_cards) = extra.cards.players.get(my_color);
-        let all_cards: Vec<_> = my_cards
-            .into_iter()
-            .chain(vec![extra.cards.side])
-            .chain(other_cards)
-            .map(|name| CARDS.iter().position(|c| c.0 == name).unwrap())
-            .collect();
-
-        let (blue_player, red_player) = match my_color {
-            Color::Blue => (Player::You, Player::Other),
-            Color::Red => (Player::Other, Player::You),
+        let state = crate::state::State {
+            pieces: extra
+                .board
+                .chars()
+                .zip(state::NamedField::range())
+                .filter_map(|(c, b)| {
+                    [
+                        None,
+                        Some(state::Piece(state::PlayerColor::BLUE, PieceKind::Pawn)),
+                        Some(state::Piece(state::PlayerColor::BLUE, PieceKind::King)),
+                        Some(state::Piece(state::PlayerColor::RED, PieceKind::Pawn)),
+                        Some(state::Piece(state::PlayerColor::RED, PieceKind::King)),
+                    ][c.to_digit(10).unwrap() as usize]
+                        .map(|x| (b, x))
+                })
+                .collect(),
+            table_card: card_to_pos(extra.cards.side),
+            player_cards: HashMap::from_iter([
+                (
+                    state::PlayerColor::RED,
+                    player_card_to_pos(extra.cards.players.red),
+                ),
+                (
+                    state::PlayerColor::BLUE,
+                    player_card_to_pos(extra.cards.players.blue),
+                ),
+            ]),
+            active_eq_red: my_color == Color::Red,
         };
-        let mut board: Vec<_> = extra
-            .board
-            .chars()
-            .map(|c| {
-                [
-                    None,
-                    Some(Piece(blue_player, PieceKind::Pawn)),
-                    Some(Piece(blue_player, PieceKind::King)),
-                    Some(Piece(red_player, PieceKind::Pawn)),
-                    Some(Piece(red_player, PieceKind::King)),
-                ][c.to_digit(10).unwrap() as usize]
-            })
-            .collect();
 
-        board[0..5].reverse();
-        board[5..10].reverse();
-        board[10..15].reverse();
-        board[15..20].reverse();
-        board[20..25].reverse();
-        if my_color == Color::Blue {
-            board.reverse();
+        let state: state::State<Perspective, PlayerTurn> = state.translate();
+        let mut board = [None; 25];
+        for (loc, piece) in state.pieces {
+            let idx = Perspective::range().position(|x| x == loc).unwrap();
+            let player = [Player::Other, Player::You][piece.0.is_active as usize];
+            board[idx] = Some(Piece(player, piece.1))
         }
 
         Self {
@@ -205,8 +224,14 @@ impl ServerMsg {
             } else {
                 Player::Other
             },
-            cards: all_cards.try_into().unwrap(),
-            board: board.try_into().unwrap(),
+            cards: [
+                state.player_cards[&PlayerTurn::ACTIVE][0],
+                state.player_cards[&PlayerTurn::ACTIVE][1],
+                state.table_card,
+                state.player_cards[&PlayerTurn::WAITING][0],
+                state.player_cards[&PlayerTurn::WAITING][1],
+            ],
+            board,
             my_color,
         }
     }

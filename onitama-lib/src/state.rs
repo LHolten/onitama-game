@@ -2,31 +2,42 @@ use std::{collections::HashMap, hash::Hash};
 
 use crate::PieceKind;
 
-pub struct Piece<Player> {
-    player: Player,
-    kind: PieceKind,
-}
+#[derive(Clone, Copy)]
+pub struct Piece<Player>(pub Player, pub PieceKind);
 
 pub struct State<Pos, Player> {
-    pieces: HashMap<Pos, Piece<Player>>,
-    table_card: usize,
-    player_cards: HashMap<Player, [usize; 2]>,
-    active_eq_red: bool,
+    pub pieces: HashMap<Pos, Piece<Player>>,
+    pub table_card: usize,
+    pub player_cards: HashMap<Player, [usize; 2]>,
+    pub active_eq_red: bool,
 }
 
+#[derive(PartialEq, Eq, Hash)]
 pub struct PlayerTurn {
-    is_active: bool,
+    pub is_active: bool,
 }
 
+impl PlayerTurn {
+    pub const ACTIVE: Self = Self { is_active: true };
+    pub const WAITING: Self = Self { is_active: false };
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct PlayerColor {
     // blue starting row is 1, a to e is left to right for blue
     // red is the starting player?
-    is_red: bool,
+    pub is_red: bool,
 }
 
+impl PlayerColor {
+    pub const RED: Self = Self { is_red: true };
+    pub const BLUE: Self = Self { is_red: false };
+}
+
+#[derive(PartialEq, Eq, Hash)]
 pub struct NamedField {
-    col: char, // one of a, b, c, d, e
-    row: char, // one of 1, 2, 3, 4, 5
+    pub col: char, // one of a, b, c, d, e
+    pub row: char, // one of 1, 2, 3, 4, 5
 }
 
 impl NamedField {
@@ -35,9 +46,10 @@ impl NamedField {
     }
 }
 
+#[derive(PartialEq, Eq, Hash)]
 pub struct Perspective {
-    col: u8, // left to right for active player
-    row: u8, // back to front for active player
+    pub col: u8, // left to right for active player
+    pub row: u8, // back to front for active player
 }
 
 impl Perspective {
@@ -118,10 +130,7 @@ impl<A, B> State<A, B> {
                 .map(|(k, v)| {
                     (
                         k.translate(active_eq_red),
-                        Piece {
-                            player: v.player.translate(active_eq_red),
-                            kind: v.kind,
-                        },
+                        Piece(v.0.translate(active_eq_red), v.1),
                     )
                 })
                 .collect(),
