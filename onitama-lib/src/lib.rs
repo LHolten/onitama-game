@@ -5,6 +5,7 @@ extern crate serde;
 use boolinator::Boolinator;
 use serde::{Deserialize, Serialize};
 use std::{
+    array,
     cmp::{max, min},
     collections::HashMap,
     convert::TryInto,
@@ -14,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use crate::state::{Perspective, PlayerTurn};
+use crate::state::{NamedField, Perspective, PlayerTurn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClientMsg {
@@ -177,24 +178,26 @@ pub fn player_card_to_pos(name: Vec<String>) -> [usize; 2] {
         .unwrap()
 }
 
+pub fn collect_array<T, const N: usize>(iter: impl IntoIterator<Item = T>) -> [T; N] {
+    iter.into_iter()
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|_| "f")
+        .unwrap()
+}
+
 impl ServerMsg {
     pub fn from_state(extra: ExtraState, my_color: Color) -> Self {
         let state = crate::state::State {
-            pieces: extra
-                .board
-                .chars()
-                .zip(state::NamedField::range())
-                .filter_map(|(c, b)| {
-                    [
-                        None,
-                        Some(state::Piece(state::PlayerColor::BLUE, PieceKind::Pawn)),
-                        Some(state::Piece(state::PlayerColor::BLUE, PieceKind::King)),
-                        Some(state::Piece(state::PlayerColor::RED, PieceKind::Pawn)),
-                        Some(state::Piece(state::PlayerColor::RED, PieceKind::King)),
-                    ][c.to_digit(10).unwrap() as usize]
-                        .map(|x| (b, x))
-                })
-                .collect(),
+            board: collect_array(extra.board.chars().map(|c| {
+                [
+                    None,
+                    Some(state::Piece(state::PlayerColor::BLUE, PieceKind::Pawn)),
+                    Some(state::Piece(state::PlayerColor::BLUE, PieceKind::King)),
+                    Some(state::Piece(state::PlayerColor::RED, PieceKind::Pawn)),
+                    Some(state::Piece(state::PlayerColor::RED, PieceKind::King)),
+                ][c.to_digit(10).unwrap() as usize]
+            })),
             table_card: card_to_pos(extra.cards.side),
             player_cards: HashMap::from_iter([
                 (
@@ -207,15 +210,16 @@ impl ServerMsg {
                 ),
             ]),
             active_eq_red: my_color == Color::Red,
+            _p: std::marker::PhantomData::<NamedField>,
         };
 
-        let state: state::State<Perspective, PlayerTurn> = state.translate();
-        let mut board = [None; 25];
-        for (loc, piece) in state.pieces {
-            let idx = Perspective::range().position(|x| x == loc).unwrap();
-            let player = [Player::Other, Player::You][piece.0.is_active as usize];
-            board[idx] = Some(Piece(player, piece.1))
-        }
+        let state: state::State = state.translate();
+        let board = state.board.map(|piece| {
+            piece.map(|piece| {
+                let player = [Player::Other, Player::You][piece.0.is_active as usize];
+                Piece(player, piece.1)
+            })
+        });
 
         Self {
             timers: [Duration::ZERO; 2],

@@ -1,15 +1,16 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{array, collections::HashMap, hash::Hash, marker::PhantomData};
 
 use crate::PieceKind;
 
 #[derive(Clone, Copy)]
 pub struct Piece<Player>(pub Player, pub PieceKind);
 
-pub struct State<Pos, Player> {
-    pub pieces: HashMap<Pos, Piece<Player>>,
+pub struct State<Pos = Perspective, Player = PlayerTurn> {
+    pub board: [Option<Piece<Player>>; 25],
     pub table_card: usize,
     pub player_cards: HashMap<Player, [usize; 2]>,
     pub active_eq_red: bool,
+    pub _p: PhantomData<Pos>,
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -40,8 +41,8 @@ pub struct NamedField {
     pub row: char, // one of 1, 2, 3, 4, 5
 }
 
-impl NamedField {
-    pub fn range() -> impl Iterator<Item = Self> {
+impl PosRange for NamedField {
+    fn range() -> impl Iterator<Item = Self> {
         ('1'..='5').flat_map(|row| ('a'..='e').map(move |col| Self { col, row }))
     }
 }
@@ -52,14 +53,18 @@ pub struct Perspective {
     pub row: u8, // back to front for active player
 }
 
-impl Perspective {
-    pub fn range() -> impl Iterator<Item = Self> {
+impl PosRange for Perspective {
+    fn range() -> impl Iterator<Item = Self> {
         (0..5).flat_map(|row| (0..5).map(move |col| Self { col, row }))
     }
 }
 
 pub trait Translate<To> {
     fn translate(self, active_eq_red: bool) -> To;
+}
+
+pub trait PosRange {
+    fn range() -> impl Iterator<Item = Self>;
 }
 
 impl<X> Translate<X> for X {
@@ -112,34 +117,37 @@ impl Translate<PlayerTurn> for PlayerColor {
 }
 
 impl<A, B> State<A, B> {
-    pub fn translate<X: Eq + Hash, Y: Eq + Hash>(self) -> State<X, Y>
+    pub fn translate<X, Y>(self) -> State<X, Y>
     where
-        A: Translate<X>,
+        A: Translate<X> + PosRange,
+        X: PosRange + PartialEq,
         B: Translate<Y>,
+        Y: Eq + Hash,
     {
         let State {
-            pieces,
+            board,
             active_eq_red,
             table_card,
             player_cards,
+            _p,
         } = self;
 
+        let mut new_board = array::from_fn(|_| None);
+        for (pos, piece) in A::range().zip(board) {
+            let pos = pos.translate(active_eq_red);
+            let new_pos = X::range().position(|x| x == pos).unwrap();
+            new_board[new_pos] = piece.map(|b| Piece(b.0.translate(active_eq_red), b.1))
+        }
+
         State {
-            pieces: pieces
-                .into_iter()
-                .map(|(k, v)| {
-                    (
-                        k.translate(active_eq_red),
-                        Piece(v.0.translate(active_eq_red), v.1),
-                    )
-                })
-                .collect(),
+            board: new_board,
             active_eq_red,
             table_card,
             player_cards: player_cards
                 .into_iter()
                 .map(|(k, v)| (k.translate(active_eq_red), v))
                 .collect(),
+            _p: PhantomData,
         }
     }
 }
