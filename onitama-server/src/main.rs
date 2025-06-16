@@ -61,7 +61,7 @@ impl Client {
 
 fn main() {
     // listen for WebSockets on port 8080:
-    let event_hub = simple_websockets::launch(8080).expect("failed to listen on port 8080");
+    let event_hub = simple_websockets::launch(5000).expect("failed to listen on port 5000");
     // map between client ids and the client's `Responder`:
     let mut clients: HashMap<u64, Client> = HashMap::new();
 
