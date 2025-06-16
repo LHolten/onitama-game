@@ -145,7 +145,7 @@ pub fn card_to_pos(name: String) -> usize {
     CARDS.iter().position(|c| c.0 == name).unwrap()
 }
 
-pub fn player_card_to_pos(name: Vec<String>) -> [usize; 2] {
+fn player_card_to_pos(name: Vec<String>) -> [usize; 2] {
     name.into_iter()
         .map(card_to_pos)
         .collect::<Vec<_>>()
@@ -153,7 +153,7 @@ pub fn player_card_to_pos(name: Vec<String>) -> [usize; 2] {
         .unwrap()
 }
 
-pub fn collect_array<T, const N: usize>(iter: impl IntoIterator<Item = T>) -> [T; N] {
+fn collect_array<T, const N: usize>(iter: impl IntoIterator<Item = T>) -> [T; N] {
     iter.into_iter()
         .collect::<Vec<_>>()
         .try_into()
@@ -161,18 +161,24 @@ pub fn collect_array<T, const N: usize>(iter: impl IntoIterator<Item = T>) -> [T
         .unwrap()
 }
 
+pub static DEFAULT_BOARD: &str = "1121100000000000000033433";
+
+pub fn board_from_str(board: &str) -> [Option<Piece<PlayerColor>>; 25] {
+    collect_array(board.chars().map(|c| {
+        [
+            None,
+            Some(state::Piece(state::PlayerColor::BLUE, PieceKind::Pawn)),
+            Some(state::Piece(state::PlayerColor::BLUE, PieceKind::King)),
+            Some(state::Piece(state::PlayerColor::RED, PieceKind::Pawn)),
+            Some(state::Piece(state::PlayerColor::RED, PieceKind::King)),
+        ][c.to_digit(10).unwrap() as usize]
+    }))
+}
+
 impl state::State<NamedField, PlayerColor> {
     pub fn from_state(extra: ExtraState) -> Self {
         crate::state::State {
-            board: collect_array(extra.board.chars().map(|c| {
-                [
-                    None,
-                    Some(state::Piece(state::PlayerColor::BLUE, PieceKind::Pawn)),
-                    Some(state::Piece(state::PlayerColor::BLUE, PieceKind::King)),
-                    Some(state::Piece(state::PlayerColor::RED, PieceKind::Pawn)),
-                    Some(state::Piece(state::PlayerColor::RED, PieceKind::King)),
-                ][c.to_digit(10).unwrap() as usize]
-            })),
+            board: board_from_str(&extra.board),
             table_card: card_to_pos(extra.cards.side),
             cards: HashMap::from_iter([
                 (
@@ -290,7 +296,7 @@ pub fn in_card(offset: usize, card: usize) -> bool {
 // 5 6 7 8 9  10
 // 0 1 2 3 4  20
 
-pub const CARDS: &[(&str, &[usize])] = &[
+pub static CARDS: &[(&str, &[usize])] = &[
     ("ox", &[7, 13, 17]),
     ("boar", &[7, 11, 13]),
     ("horse", &[7, 11, 17]),

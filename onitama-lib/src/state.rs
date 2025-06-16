@@ -1,9 +1,24 @@
-use std::{array, collections::HashMap, hash::Hash, marker::PhantomData};
+use std::{
+    array,
+    collections::HashMap,
+    error::Error,
+    hash::Hash,
+    marker::PhantomData,
+    mem::{swap, take},
+    str::FromStr,
+};
 
-use crate::PieceKind;
+use crate::{PieceKind, CARDS};
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Piece<Player = PlayerTurn>(pub Player, pub PieceKind);
+
+impl Piece {
+    pub const ACTIVE_PAWN: Self = Self(PlayerTurn::ACTIVE, PieceKind::Pawn);
+    pub const ACTIVE_KING: Self = Self(PlayerTurn::ACTIVE, PieceKind::King);
+    pub const WAITING_PAWN: Self = Self(PlayerTurn::WAITING, PieceKind::Pawn);
+    pub const WAITING_KING: Self = Self(PlayerTurn::WAITING, PieceKind::King);
+}
 
 pub struct State<Pos = Perspective, Player = PlayerTurn> {
     pub board: [Option<Piece<Player>>; 25],
@@ -11,6 +26,53 @@ pub struct State<Pos = Perspective, Player = PlayerTurn> {
     pub cards: HashMap<Player, [usize; 2]>,
     pub active_eq_red: bool,
     pub _p: PhantomData<Pos>,
+}
+
+// impl Default for State {
+//     fn default() -> Self {
+//         Self {
+//             board: Default::default(),
+//             table_card: 0,
+//             cards: todo!(),
+//             active_eq_red: todo!(),
+//             _p: PhantomData,
+//         }
+//     }
+// }
+
+impl State {
+    pub fn make_move<X: Translate<Perspective>>(
+        &mut self,
+        card: &str,
+        from: X,
+        to: X,
+    ) -> Result<(), Box<dyn Error>> {
+        let from = from.translate(self.active_eq_red);
+        let from = Perspective::range().position(|x| x == from).unwrap();
+        let to = to.translate(self.active_eq_red);
+        let to = Perspective::range().position(|x| x == to).unwrap();
+        if !self.board[from].is_some_and(|x| x.0 == PlayerTurn::ACTIVE) {
+            return Err("can only move your own pieces".into());
+        }
+        if self.board[to].is_some_and(|x| x.0 == PlayerTurn::ACTIVE) {
+            return Err("can not move onto your own piece".into());
+        }
+        self.board[to] = take(&mut self.board[from]);
+        let card = CARDS
+            .iter()
+            .position(|x| x.0 == card)
+            .ok_or("unknown card name")?;
+        let have = self
+            .cards
+            .get_mut(&PlayerTurn::ACTIVE)
+            .unwrap()
+            .iter_mut()
+            .find(|x| **x == card)
+            .ok_or("you do not have that card")?;
+        swap(have, &mut self.table_card);
+        self.active_eq_red ^= true;
+        Ok(())
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
@@ -26,7 +88,7 @@ impl PlayerTurn {
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct PlayerColor {
     // blue starting row is 1, a to e is left to right for blue
-    // red is the starting player?
+    // blue is the starting player?
     pub is_red: bool,
 }
 
@@ -44,6 +106,24 @@ pub struct NamedField {
 impl std::fmt::Display for NamedField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}{}", self.col, self.row)
+    }
+}
+
+impl FromStr for NamedField {
+    type Err = Box<dyn Error>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut chars = s.chars();
+        Ok(Self {
+            col: chars
+                .next()
+                .filter(|x| ('a'..='e').contains(x))
+                .ok_or("invalid column")?,
+            row: chars
+                .next()
+                .filter(|x| ('1'..='5').contains(x))
+                .ok_or("invalid row")?,
+        })
     }
 }
 

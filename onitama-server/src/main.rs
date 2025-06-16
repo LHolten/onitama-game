@@ -1,4 +1,8 @@
-use onitama_lib::{Cards, Color, ExtraState, LitamaMsg, PieceKind, Sides};
+use onitama_lib::state::{NamedField, Piece, PlayerColor, State};
+use onitama_lib::{
+    board_from_str, card_to_pos, Cards, Color, ExtraState, LitamaMsg, PieceKind, Sides, StateMsg,
+    DEFAULT_BOARD,
+};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use rust_query::migration::{schema, Config};
@@ -6,7 +10,9 @@ use rust_query::{
     Database, FromExpr, IntoExpr, LocalClient, TableRow, Transaction, TransactionMut, Update,
 };
 use std::error::Error;
+use std::iter::FromIterator;
 use std::mem::swap;
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -28,7 +34,7 @@ pub mod vN {
         pub join_name: Option<String>,
 
         // either "red" or "blue", this is secret until the second player joins
-        // "red" is always the starting player?
+        // "blue" is always the starting player.
         pub create_color: String,
         // concatenation of blue1,blue2,red1,red2,side
         pub starting_cards: String,
@@ -232,7 +238,7 @@ pub fn handle_message(
     Ok(())
 }
 
-pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>) -> State {
+pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>) -> StateMsg {
     let m: Match!(
         create_name,
         join_name,
@@ -242,7 +248,7 @@ pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>)
     ) = txn.query_one(FromExpr::from_expr(m_row));
 
     let Some(join_name) = m.join_name else {
-        return State::Waiting {
+        return StateMsg::Waiting {
             usernames: Sides {
                 blue: m.create_name.clone(),
                 red: m.create_name,
@@ -258,15 +264,40 @@ pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>)
 
     let moves: Vec<_> = m.history.split(',').map(ToOwned::to_owned).collect();
     let starting_cards: Vec<_> = m.starting_cards.split(',').collect();
-    let starting_cards = Cards {
-        players: Sides {
-            blue: vec![starting_cards[0].to_owned(), starting_cards[1].to_owned()],
-            red: vec![starting_cards[2].to_owned(), starting_cards[3].to_owned()],
-        },
-        side: starting_cards[4].to_owned(),
-    };
 
-    State::InProgress {
+    let mut state = State {
+        board: board_from_str(DEFAULT_BOARD),
+        table_card: card_to_pos(starting_cards[4].to_owned()),
+        cards: HashMap::from_iter([
+            (
+                PlayerColor::BLUE,
+                [
+                    card_to_pos(starting_cards[0].to_owned()),
+                    card_to_pos(starting_cards[1].to_owned()),
+                ],
+            ),
+            (
+                PlayerColor::RED,
+                [
+                    card_to_pos(starting_cards[2].to_owned()),
+                    card_to_pos(starting_cards[3].to_owned()),
+                ],
+            ),
+        ]),
+        active_eq_red: false,
+        _p: std::marker::PhantomData::<NamedField>,
+    };
+    let mut state: State = state.translate();
+    for m in &moves {
+        let (card, from_to) = m.split_once(':').unwrap();
+        let from = NamedField::from_str(&card[..2]).unwrap();
+        let to = NamedField::from_str(&card[2..]).unwrap();
+        state.make_move(card, from, to).unwrap();
+    }
+
+    let state: State<NamedField, PlayerColor> = state.translate();
+
+    StateMsg::InProgress {
         usernames: Sides {
             blue: blue_name,
             red: red_name,
@@ -278,9 +309,25 @@ pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>)
             },
             current_turn: [Color::Blue, Color::Red][moves.len() % 2],
             cards: todo!(),
-            starting_cards,
+            starting_cards: Cards {
+                players: Sides {
+                    blue: vec![starting_cards[0].to_owned(), starting_cards[1].to_owned()],
+                    red: vec![starting_cards[2].to_owned(), starting_cards[3].to_owned()],
+                },
+                side: starting_cards[4].to_owned(),
+            },
             moves,
-            board: todo!(),
+            board: state
+                .board
+                .iter()
+                .map(|p| match p {
+                    None => '0',
+                    Some(Piece(PlayerColor::BLUE, PieceKind::Pawn)) => '1',
+                    Some(Piece(PlayerColor::BLUE, PieceKind::King)) => '2',
+                    Some(Piece(PlayerColor::RED, PieceKind::Pawn)) => '3',
+                    Some(Piece(PlayerColor::RED, PieceKind::King)) => '4',
+                })
+                .collect(),
             winner: "none".to_owned(),
         },
     }
