@@ -8,7 +8,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::{PieceKind, CARDS};
+use crate::{Cards, PieceKind, Sides, CARDS};
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Piece<Player = PlayerTurn>(pub Player, pub PieceKind);
@@ -26,6 +26,24 @@ pub struct State<Pos = Perspective, Player = PlayerTurn> {
     pub cards: HashMap<Player, [usize; 2]>,
     pub active_eq_red: bool,
     pub _p: PhantomData<Pos>,
+}
+
+impl State<NamedField, PlayerColor> {
+    pub fn cards(&self) -> Cards {
+        Cards {
+            players: Sides {
+                blue: vec![
+                    CARDS[self.cards[&PlayerColor::BLUE][0]].0.to_owned(),
+                    CARDS[self.cards[&PlayerColor::BLUE][1]].0.to_owned(),
+                ],
+                red: vec![
+                    CARDS[self.cards[&PlayerColor::RED][0]].0.to_owned(),
+                    CARDS[self.cards[&PlayerColor::RED][1]].0.to_owned(),
+                ],
+            },
+            side: CARDS[self.table_card].0.to_owned(),
+        }
+    }
 }
 
 // impl Default for State {

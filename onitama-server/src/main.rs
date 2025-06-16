@@ -199,6 +199,9 @@ pub fn handle_message(
             let token = *parts.get(2).ok_or("expected token")?;
             let card = *parts.get(3).ok_or("expected card")?;
             let movee = *parts.get(4).ok_or("expected move")?;
+            if movee.len() != 4 || !movee.is_ascii() {
+                return Err("move has unexpected len or is not ascii".into());
+            }
 
             let m: Match!(
                 create_token,
@@ -263,35 +266,29 @@ pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>)
     };
 
     let moves: Vec<_> = m.history.split(',').map(ToOwned::to_owned).collect();
-    let starting_cards: Vec<_> = m.starting_cards.split(',').collect();
+    let starting_cards: Vec<_> = m
+        .starting_cards
+        .split(',')
+        .map(|x| card_to_pos(x.to_owned()))
+        .collect();
 
-    let mut state = State {
+    let state = State {
         board: board_from_str(DEFAULT_BOARD),
-        table_card: card_to_pos(starting_cards[4].to_owned()),
+        table_card: starting_cards[4],
         cards: HashMap::from_iter([
-            (
-                PlayerColor::BLUE,
-                [
-                    card_to_pos(starting_cards[0].to_owned()),
-                    card_to_pos(starting_cards[1].to_owned()),
-                ],
-            ),
-            (
-                PlayerColor::RED,
-                [
-                    card_to_pos(starting_cards[2].to_owned()),
-                    card_to_pos(starting_cards[3].to_owned()),
-                ],
-            ),
+            (PlayerColor::BLUE, [starting_cards[0], starting_cards[1]]),
+            (PlayerColor::RED, [starting_cards[2], starting_cards[3]]),
         ]),
         active_eq_red: false,
         _p: std::marker::PhantomData::<NamedField>,
     };
+    let starting_cards = state.cards();
+
     let mut state: State = state.translate();
     for m in &moves {
         let (card, from_to) = m.split_once(':').unwrap();
-        let from = NamedField::from_str(&card[..2]).unwrap();
-        let to = NamedField::from_str(&card[2..]).unwrap();
+        let from = NamedField::from_str(&from_to[..2]).unwrap();
+        let to = NamedField::from_str(&from_to[2..]).unwrap();
         state.make_move(card, from, to).unwrap();
     }
 
@@ -308,14 +305,8 @@ pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>)
                 red: (m.create_color == "blue") as usize,
             },
             current_turn: [Color::Blue, Color::Red][moves.len() % 2],
-            cards: todo!(),
-            starting_cards: Cards {
-                players: Sides {
-                    blue: vec![starting_cards[0].to_owned(), starting_cards[1].to_owned()],
-                    red: vec![starting_cards[2].to_owned(), starting_cards[3].to_owned()],
-                },
-                side: starting_cards[4].to_owned(),
-            },
+            cards: state.cards(),
+            starting_cards,
             moves,
             board: state
                 .board
@@ -450,10 +441,3 @@ pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>)
 //         turn: Player::Other,
 //     }
 // }
-
-fn home_row(player: Player) -> [Option<Piece>; 5] {
-    let pawn = Some(Piece(player, PieceKind::Pawn));
-    let king = Some(Piece(player, PieceKind::King));
-
-    [pawn, pawn, king, pawn, pawn]
-}
