@@ -24,15 +24,13 @@ pub mod vN {
         // concatenation of moves like "elephant:a1b2,boar:a2c3"
         pub history: String,
         // these are used for authentication
-        // initially only one name is filled in, when a second player joins
-        // the second name is filled in and the tokens/names are randomly swapped.
         pub create_token: String,
         pub join_token: String,
 
         pub create_name: String,
         pub join_name: Option<String>,
 
-        // either "red" or "blue"
+        // either "red" or "blue", this is secret until the second player joins
         pub create_color: String,
         // concatenation of blue1,blue2,red1,red2,side
         pub starting_cards: String,
@@ -194,6 +192,18 @@ pub fn handle_message(
             });
         }
         "move" => {
+            let token = *parts.get(2).ok_or("expected token")?;
+            let card = *parts.get(3).ok_or("expected card")?;
+            let movee = *parts.get(4).ok_or("expected move")?;
+
+            let m: Match!(
+                create_token,
+                join_token,
+                create_color,
+                history,
+                starting_cards
+            ) = txn.query_one(FromExpr::from_expr(m_row));
+
             client.send_msg(LitamaMsg::Move {
                 match_id: match_id.to_owned(),
             });
