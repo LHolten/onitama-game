@@ -5,7 +5,9 @@ use onitama_lib::{
 use rand::seq::SliceRandom;
 use rand::Rng;
 use rust_query::migration::{schema, Config};
-use rust_query::{Database, FromExpr, IntoExpr, LocalClient, Transaction, TransactionMut, Update};
+use rust_query::{
+    Database, FromExpr, IntoExpr, LocalClient, TableRow, Transaction, TransactionMut, Update,
+};
 use std::error::Error;
 use std::mem::swap;
 use std::time::{Duration, Instant};
@@ -120,44 +122,51 @@ pub fn handle_message(
     };
     let parts: Vec<_> = msg.split(" ").collect();
     let cmd = *parts.get(0).ok_or("expected command")?;
+
+    if cmd == "create" {
+        let username = *parts.get(1).ok_or("expected username")?;
+
+        let match_id = uuid::Uuid::new_v4();
+        let blue_token = uuid::Uuid::new_v4();
+        let red_token = uuid::Uuid::new_v4();
+        let mut rng = rand::thread_rng();
+        let cards: Vec<_> = onitama_lib::CARDS
+            .choose_multiple(&mut rng, 5)
+            .map(|x| x.0)
+            .collect();
+
+        txn.insert(Match {
+            match_id,
+            history: "",
+            create_token: blue_token,
+            join_token: red_token,
+            create_name: username,
+            join_name: None,
+            create_color: ["red", "blue"].choose(&mut rng).unwrap(),
+            starting_cards: cards.join(","),
+        })
+        .unwrap();
+
+        client.send_msg(LitamaMsg::Create {
+            match_id: match_id.to_string(),
+            token: blue_token.to_string(),
+            index: 0,
+        });
+
+        txn.commit();
+        return Ok(());
+    }
+
+    // all other commands require a valid match_id
+    let match_id = *parts.get(1).ok_or("expected match_id")?;
+    let m_row = txn
+        .query_one(Match::unique(match_id))
+        .ok_or("match does not exist")?;
+
     match cmd {
-        "create" => {
-            let username = *parts.get(1).ok_or("expected username")?;
-
-            let match_id = uuid::Uuid::new_v4();
-            let blue_token = uuid::Uuid::new_v4();
-            let red_token = uuid::Uuid::new_v4();
-            let mut rng = rand::thread_rng();
-            let cards: Vec<_> = onitama_lib::CARDS
-                .choose_multiple(&mut rng, 5)
-                .map(|x| x.0)
-                .collect();
-
-            txn.insert(Match {
-                match_id,
-                history: "",
-                create_token: blue_token,
-                join_token: red_token,
-                create_name: username,
-                join_name: None,
-                create_color: ["red", "blue"].choose(&mut rng).unwrap(),
-                starting_cards: cards.join(","),
-            })
-            .unwrap();
-
-            client.send_msg(LitamaMsg::Create {
-                match_id: match_id.to_string(),
-                token: blue_token.to_string(),
-                index: 0,
-            });
-        }
         "join" => {
-            let match_id = *parts.get(1).ok_or("expected match_id")?;
             let username = *parts.get(2).ok_or("expected username")?;
 
-            let m_row = txn
-                .query_one(Match::unique(match_id))
-                .ok_or("match does not exist")?;
             let mut m: Match!(join_token, join_name) = txn.query_one(FromExpr::from_expr(m_row));
 
             if m.join_name.is_some() {
@@ -179,24 +188,17 @@ pub fn handle_message(
             });
         }
         "state" => {
-            let match_id = *parts.get(1).ok_or("expected match_id")?;
-
-            let state = read_state(&txn, match_id)?;
-
             client.send_msg(LitamaMsg::State {
                 match_id: match_id.to_owned(),
-                state,
+                state: read_state(&txn, m_row),
             });
         }
         "move" => {
-            let match_id = *parts.get(1).ok_or("expected match_id")?;
-
-            let state = read_state(&txn, match_id)?;
-
             client.send_msg(LitamaMsg::Move {
                 match_id: match_id.to_owned(),
             });
 
+            let state = read_state(&txn, m_row);
             for other in clients.values() {
                 other.send_msg(LitamaMsg::State {
                     match_id: match_id.to_owned(),
@@ -205,33 +207,25 @@ pub fn handle_message(
             }
         }
         "spectate" => {
-            let match_id = *parts.get(1).ok_or("expected match_id")?;
-
             client.subscriptions.push(match_id.to_owned());
 
             client.send_msg(LitamaMsg::Spectate {
                 match_id: match_id.to_owned(),
             });
 
-            let state = read_state(&txn, match_id)?;
             client.send_msg(LitamaMsg::State {
                 match_id: match_id.to_owned(),
-                state,
+                state: read_state(&txn, m_row),
             });
         }
         _ => return Err("unknown command".into()),
     };
 
     txn.commit();
-
     Ok(())
 }
 
-pub fn read_state(txn: &Transaction<Schema>, match_id: &str) -> Result<State, Box<dyn Error>> {
-    let m_row = txn
-        .query_one(Match::unique(match_id))
-        .ok_or("could not find match")?;
-
+pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>) -> State {
     let m: Match!(
         create_name,
         join_name,
@@ -241,12 +235,12 @@ pub fn read_state(txn: &Transaction<Schema>, match_id: &str) -> Result<State, Bo
     ) = txn.query_one(FromExpr::from_expr(m_row));
 
     let Some(join_name) = m.join_name else {
-        return Ok(State::Waiting {
+        return State::Waiting {
             usernames: Sides {
                 blue: m.create_name.clone(),
                 red: m.create_name,
             },
-        });
+        };
     };
 
     let (blue_name, red_name) = if m.create_color == "blue" {
@@ -265,7 +259,7 @@ pub fn read_state(txn: &Transaction<Schema>, match_id: &str) -> Result<State, Bo
         side: starting_cards[4].to_owned(),
     };
 
-    Ok(State::InProgress {
+    State::InProgress {
         usernames: Sides {
             blue: blue_name,
             red: red_name,
@@ -282,7 +276,7 @@ pub fn read_state(txn: &Transaction<Schema>, match_id: &str) -> Result<State, Bo
             board: todo!(),
             winner: "none".to_owned(),
         },
-    })
+    }
 }
 
 // fn handle_game(mut conn1: WS, mut conn2: WS) {
