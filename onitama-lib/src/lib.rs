@@ -85,18 +85,18 @@ pub enum State {
 #[serde(rename_all = "camelCase")]
 pub struct ExtraState {
     pub indices: Sides<usize>,
-    current_turn: Color,
-    cards: Cards,
-    starting_cards: Cards,
-    moves: Vec<String>,
-    board: String,
-    winner: String,
+    pub current_turn: Color,
+    pub cards: Cards,
+    pub starting_cards: Cards,
+    pub moves: Vec<String>,
+    pub board: String,
+    pub winner: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Sides<T> {
-    blue: T,
-    red: T,
+    pub blue: T,
+    pub red: T,
 }
 
 impl<T> Sides<T> {
@@ -122,8 +122,8 @@ impl Sides<usize> {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Cards {
     #[serde(flatten)]
-    players: Sides<Vec<String>>,
-    side: String,
+    pub players: Sides<Vec<String>>,
+    pub side: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
@@ -317,7 +317,7 @@ pub fn in_card(offset: usize, card: usize) -> bool {
 // 5 6 7 8 9  10
 // 0 1 2 3 4  20
 
-const CARDS: &[(&str, &[usize])] = &[
+pub const CARDS: &[(&str, &[usize])] = &[
     ("ox", &[7, 13, 17]),
     ("boar", &[7, 11, 13]),
     ("horse", &[7, 11, 17]),

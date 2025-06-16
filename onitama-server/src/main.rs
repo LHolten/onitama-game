@@ -1,165 +1,353 @@
-use bincode::{deserialize, serialize};
 use onitama_lib::{
-    check_move, get_offset, in_card, is_mate, ClientMsg, Piece, PieceKind, Player, ServerMsg,
+    check_move, get_offset, in_card, is_mate, Cards, ClientMsg, Color, ExtraState, LitamaMsg,
+    Piece, PieceKind, Player, ServerMsg, Sides, State,
 };
-use rand::prelude::SliceRandom;
-use rand::{thread_rng, Rng};
-use std::convert::TryInto;
+use rand::seq::SliceRandom;
+use rand::Rng;
+use rust_query::migration::{schema, Config};
+use rust_query::{Database, FromExpr, IntoExpr, LocalClient, Transaction, TransactionMut, Update};
+use std::error::Error;
 use std::mem::swap;
-use std::net::{TcpListener, TcpStream};
-use std::thread;
 use std::time::{Duration, Instant};
-use tungstenite::server::accept;
-use tungstenite::util::NonBlockingResult;
-use tungstenite::{Message, WebSocket};
+use uuid::Uuid;
+
+use simple_websockets::{Event, Message, Responder};
+use std::collections::HashMap;
+
+#[schema(Schema)]
+pub mod vN {
+    pub struct Match {
+        #[unique]
+        pub match_id: String,
+        // concatenation of moves like "elephant:a1b2,boar:a2c3"
+        pub history: String,
+        // these are used for authentication
+        // initially only one name is filled in, when a second player joins
+        // the second name is filled in and the tokens/names are randomly swapped.
+        pub create_token: String,
+        pub join_token: String,
+
+        pub create_name: String,
+        pub join_name: Option<String>,
+
+        // either "red" or "blue"
+        pub create_color: String,
+        // concatenation of blue1,blue2,red1,red2,side
+        pub starting_cards: String,
+    }
+}
+use v0::*;
+
+impl<'t> IntoExpr<'t, Schema> for Uuid {
+    type Typ = String;
+    fn into_expr(self) -> rust_query::Expr<'t, Schema, Self::Typ> {
+        self.to_string().into_expr()
+    }
+}
+
+struct Client {
+    responder: Responder,
+    // these are game_ids
+    subscriptions: Vec<String>,
+}
 
 fn main() {
-    let server = TcpListener::bind("0.0.0.0:9001").unwrap();
-    let mut incoming = server.incoming();
-    while let Some(Ok(client1)) = incoming.next() {
-        if let Some(mut client1) = accept(client1).ok() {
-            while let Some(Ok(client2)) = incoming.next() {
-                if let Some(client2) = accept(client2).ok() {
-                    client1.get_ref().set_nonblocking(true).unwrap();
-                    let disconnected = loop {
-                        match client1.read_message().no_block() {
-                            Ok(None) => break false,
-                            Ok(_) => {}
-                            Err(_) => break true,
-                        }
-                    };
-                    client1.get_ref().set_nonblocking(false).unwrap();
+    // listen for WebSockets on port 8080:
+    let event_hub = simple_websockets::launch(8080).expect("failed to listen on port 8080");
+    // map between client ids and the client's `Responder`:
+    let mut clients: HashMap<u64, Client> = HashMap::new();
 
-                    if !disconnected {
-                        thread::spawn(|| handle_game(client1, client2));
-                        break;
-                    }
-                    client1 = client2;
-                }
+    let mut db_client = LocalClient::try_new().unwrap();
+    let db: Database<Schema> = db_client
+        .migrator(Config::open_in_memory())
+        .unwrap()
+        .finish()
+        .unwrap();
+
+    loop {
+        match event_hub.poll_event() {
+            Event::Connect(client_id, responder) => {
+                println!("A client connected with id #{}", client_id);
+                // add their Responder to our `clients` map:
+                clients.insert(
+                    client_id,
+                    Client {
+                        responder,
+                        subscriptions: vec![],
+                    },
+                );
+            }
+            Event::Disconnect(client_id) => {
+                println!("Client #{} disconnected.", client_id);
+                // remove the disconnected client from the clients map:
+                clients.remove(&client_id);
+            }
+            Event::Message(client_id, message) => {
+                // retrieve this client's `Responder`:
+                let client = clients.get(&client_id).unwrap();
+                // echo the message back:
+                client.responder.send(message);
             }
         }
     }
 }
 
-type WS = WebSocket<TcpStream>;
+pub fn handle_message(
+    message: Message,
+    client_id: u64,
+    clients: &mut HashMap<u64, Client>,
+    txn: &mut TransactionMut<Schema>,
+) -> Result<(), Box<dyn Error>> {
+    let client = clients.get(&client_id).unwrap();
 
-fn handle_game(mut conn1: WS, mut conn2: WS) {
-    conn1.get_ref().set_nodelay(true).unwrap();
-    conn2.get_ref().set_nodelay(true).unwrap();
+    let Message::Text(msg) = message else {
+        return Err("recieved binary!".into());
+    };
+    let parts: Vec<_> = msg.split(" ").collect();
+    let cmd = *parts.get(0).ok_or("expected command")?;
+    let server_msg = match cmd {
+        "create" => {
+            let username = *parts.get(1).ok_or("expected username")?;
 
-    let mut game = new_game();
+            let match_id = uuid::Uuid::new_v4();
+            let blue_token = uuid::Uuid::new_v4();
+            let red_token = uuid::Uuid::new_v4();
+            let mut rng = rand::thread_rng();
+            let cards: Vec<_> = onitama_lib::CARDS
+                .choose_multiple(&mut rng, 5)
+                .map(|x| x.0)
+                .collect();
 
-    while game_turn(&mut game, &mut conn1, &mut conn2).is_some() {
-        swap(&mut conn1, &mut conn2);
-    }
-
-    close_connection(conn1);
-    close_connection(conn2);
-
-    println!("game over");
-}
-
-fn close_connection(mut conn: WS) {
-    conn.close(None).unwrap();
-    while conn.read_message().is_ok() {}
-}
-
-fn game_turn(game: &mut ServerMsg, conn_curr: &mut WS, conn_other: &mut WS) -> Option<()> {
-    let buf = serialize(&game).unwrap();
-    conn_other.write_message(Message::Binary(buf)).ok()?;
-    conn_other.write_pending().ok()?;
-
-    mirror_game(game);
-
-    let buf = serialize(&game).unwrap();
-    conn_curr.write_message(Message::Binary(buf)).ok()?;
-    conn_curr.write_pending().ok()?;
-
-    if is_mate(game) {
-        return None;
-    }
-
-    let now = Instant::now();
-
-    let action: ClientMsg = loop {
-        let timeout = game.timers[0].saturating_sub(now.elapsed());
-        if timeout.is_zero() {
-            return None;
-        }
-        conn_curr.get_ref().set_read_timeout(Some(timeout)).unwrap();
-        match conn_curr.read_message().ok()? {
-            Message::Binary(data) => {
-                break deserialize(&data[..]).ok()?;
+            txn.insert(Match {
+                match_id,
+                history: "",
+                create_token: blue_token,
+                join_token: red_token,
+                create_name: username,
+                join_name: None,
+                create_color: ["red", "blue"].choose(&mut rng).unwrap(),
+                starting_cards: cards.join(","),
+            })
+            .unwrap();
+            LitamaMsg::Create {
+                match_id: match_id.to_string(),
+                token: blue_token.to_string(),
+                index: 0,
             }
-            Message::Ping(_) => conn_curr.write_pending().ok()?,
-            _ => return None,
         }
+        "join" => {
+            let match_id = *parts.get(1).ok_or("expected match_id")?;
+            let username = *parts.get(2).ok_or("expected username")?;
+
+            let m_row = txn
+                .query_one(Match::unique(match_id))
+                .ok_or("match does not exist")?;
+            let mut m: Match!(join_token, join_name) = txn.query_one(FromExpr::from_expr(m_row));
+
+            if m.join_name.is_some() {
+                return Err("match is already joined".into());
+            }
+
+            txn.update_ok(
+                m_row,
+                Match {
+                    join_name: Update::set(Some(username)),
+                    ..Default::default()
+                },
+            );
+
+            LitamaMsg::Join {
+                match_id: match_id.to_owned(),
+                token: m.join_token,
+                index: 1,
+            }
+        }
+        "state" => {}
+        "move" => {}
+        "spectate" => {}
+        _ => return Err("unknown command".into()),
     };
 
-    game.timers[0] = game.timers[0].saturating_sub(now.elapsed()) + Duration::from_secs(2);
+    txn.commit();
 
-    println!("got action");
+    Ok(())
+}
 
-    check_move(game, action.from, action.to)?;
+pub fn read_state(txn: &Transaction<Schema>, match_id: String) -> Result<State, Box<dyn Error>> {
+    let m_row = txn
+        .query_one(Match::unique(match_id))
+        .ok_or("could not find match")?;
 
-    let offset = get_offset(action.to, action.from).unwrap();
-    let index = match (
-        in_card(offset, game.cards[0]),
-        in_card(offset, game.cards[1]),
-    ) {
-        (true, true) => thread_rng().gen::<bool>() as usize,
-        (true, false) => 0,
-        (false, true) => 1,
-        (false, false) => unreachable!(),
+    let m: Match!(
+        create_name,
+        join_name,
+        history,
+        create_color,
+        starting_cards
+    ) = txn.query_one(FromExpr::from_expr(m_row));
+
+    let Some(join_name) = m.join_name else {
+        return Ok(State::Waiting {
+            usernames: Sides {
+                blue: m.create_name.clone(),
+                red: m.create_name,
+            },
+        });
     };
 
-    game.cards.swap(index, 2);
-    game.board[action.to] = game.board[action.from].take();
-    flip_player(&mut game.turn);
-
-    Some(())
-}
-
-fn mirror_game(game: &mut ServerMsg) {
-    game.board.reverse();
-    for piece in game.board.iter_mut().flatten() {
-        flip_player(&mut piece.0);
-    }
-    game.cards.reverse();
-    flip_player(&mut game.turn);
-    game.timers.reverse();
-}
-
-fn flip_player(player: &mut Player) {
-    if *player == Player::You {
-        *player = Player::Other
+    let (blue_name, red_name) = if m.create_color == "blue" {
+        (m.create_name, join_name)
     } else {
-        *player = Player::You
-    }
+        (join_name, m.create_name)
+    };
+
+    let moves: Vec<_> = m.history.split(',').map(ToOwned::to_owned).collect();
+    let starting_cards: Vec<_> = m.starting_cards.split(',').collect();
+    let starting_cards = Cards {
+        players: Sides {
+            blue: vec![starting_cards[0].to_owned(), starting_cards[1].to_owned()],
+            red: vec![starting_cards[2].to_owned(), starting_cards[3].to_owned()],
+        },
+        side: starting_cards[4].to_owned(),
+    };
+
+    Ok(State::InProgress {
+        usernames: Sides {
+            blue: blue_name,
+            red: red_name,
+        },
+        extra: ExtraState {
+            indices: Sides {
+                blue: (m.create_color == "red") as usize,
+                red: (m.create_color == "blue") as usize,
+            },
+            current_turn: [Color::Blue, Color::Red][moves.len() % 2],
+            cards: todo!(),
+            starting_cards,
+            moves,
+            board: todo!(),
+            winner: "none".to_owned(),
+        },
+    })
 }
 
-fn new_game() -> ServerMsg {
-    let mut board = Vec::default();
-    board.extend_from_slice(&home_row(Player::Other));
-    for _ in 0..15 {
-        board.push(None);
-    }
-    board.extend_from_slice(&home_row(Player::You));
+// fn handle_game(mut conn1: WS, mut conn2: WS) {
+//     conn1.get_ref().set_nodelay(true).unwrap();
+//     conn2.get_ref().set_nodelay(true).unwrap();
 
-    let cards: [usize; 16] = (0..16).collect::<Vec<usize>>().try_into().unwrap();
+//     let mut game = new_game();
 
-    ServerMsg {
-        board: board.try_into().unwrap(),
-        cards: cards
-            .choose_multiple(&mut thread_rng(), 5)
-            .copied()
-            .collect::<Vec<usize>>()
-            .try_into()
-            .unwrap(),
-        timers: [Duration::from_secs(60 * 3); 2],
-        turn: Player::Other,
-    }
-}
+//     while game_turn(&mut game, &mut conn1, &mut conn2).is_some() {
+//         swap(&mut conn1, &mut conn2);
+//     }
+
+//     close_connection(conn1);
+//     close_connection(conn2);
+
+//     println!("game over");
+// }
+
+// fn close_connection(mut conn: WS) {
+//     conn.close(None).unwrap();
+//     while conn.read_message().is_ok() {}
+// }
+
+// fn game_turn(game: &mut ServerMsg, conn_curr: &mut WS, conn_other: &mut WS) -> Option<()> {
+//     let buf = serialize(&game).unwrap();
+//     conn_other.write_message(Message::Binary(buf)).ok()?;
+//     conn_other.write_pending().ok()?;
+
+//     mirror_game(game);
+
+//     let buf = serialize(&game).unwrap();
+//     conn_curr.write_message(Message::Binary(buf)).ok()?;
+//     conn_curr.write_pending().ok()?;
+
+//     if is_mate(game) {
+//         return None;
+//     }
+
+//     let now = Instant::now();
+
+//     let action: ClientMsg = loop {
+//         let timeout = game.timers[0].saturating_sub(now.elapsed());
+//         if timeout.is_zero() {
+//             return None;
+//         }
+//         conn_curr.get_ref().set_read_timeout(Some(timeout)).unwrap();
+//         match conn_curr.read_message().ok()? {
+//             Message::Binary(data) => {
+//                 break deserialize(&data[..]).ok()?;
+//             }
+//             Message::Ping(_) => conn_curr.write_pending().ok()?,
+//             _ => return None,
+//         }
+//     };
+
+//     game.timers[0] = game.timers[0].saturating_sub(now.elapsed()) + Duration::from_secs(2);
+
+//     println!("got action");
+
+//     check_move(game, action.from, action.to)?;
+
+//     let offset = get_offset(action.to, action.from).unwrap();
+//     let index = match (
+//         in_card(offset, game.cards[0]),
+//         in_card(offset, game.cards[1]),
+//     ) {
+//         (true, true) => thread_rng().gen::<bool>() as usize,
+//         (true, false) => 0,
+//         (false, true) => 1,
+//         (false, false) => unreachable!(),
+//     };
+
+//     game.cards.swap(index, 2);
+//     game.board[action.to] = game.board[action.from].take();
+//     flip_player(&mut game.turn);
+
+//     Some(())
+// }
+
+// fn mirror_game(game: &mut ServerMsg) {
+//     game.board.reverse();
+//     for piece in game.board.iter_mut().flatten() {
+//         flip_player(&mut piece.0);
+//     }
+//     game.cards.reverse();
+//     flip_player(&mut game.turn);
+//     game.timers.reverse();
+// }
+
+// fn flip_player(player: &mut Player) {
+//     if *player == Player::You {
+//         *player = Player::Other
+//     } else {
+//         *player = Player::You
+//     }
+// }
+
+// fn new_game() -> ServerMsg {
+//     let mut board = Vec::default();
+//     board.extend_from_slice(&home_row(Player::Other));
+//     for _ in 0..15 {
+//         board.push(None);
+//     }
+//     board.extend_from_slice(&home_row(Player::You));
+
+//     let cards: [usize; 16] = (0..16).collect::<Vec<usize>>().try_into().unwrap();
+
+//     ServerMsg {
+//         board: board.try_into().unwrap(),
+//         cards: cards
+//             .choose_multiple(&mut thread_rng(), 5)
+//             .copied()
+//             .collect::<Vec<usize>>()
+//             .try_into()
+//             .unwrap(),
+//         timers: [Duration::from_secs(60 * 3); 2],
+//         turn: Player::Other,
+//     }
+// }
 
 fn home_row(player: Player) -> [Option<Piece>; 5] {
     let pawn = Some(Piece(player, PieceKind::Pawn));
