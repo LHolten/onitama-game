@@ -2,11 +2,11 @@ mod board;
 mod card;
 mod connection;
 
-use std::{sync::LazyLock, time::Duration};
+use std::{collections::HashMap, marker::PhantomData, sync::LazyLock, time::Duration};
 
 use dominator::{animation::timestamps, class, html, Dom};
 use futures_signals::signal::{Mutable, SignalExt};
-use onitama_lib::{Color, Player, ServerMsg};
+use onitama_lib::state::State;
 use web_sys::WebSocket;
 
 use crate::{card::render_card, connection::game_dom};
@@ -18,6 +18,12 @@ pub struct App {
     timestamp: Mutable<f64>,
     done: Mutable<bool>,
     info: Mutable<(String, String)>,
+}
+
+pub struct ServerMsg {
+    pub state: State,
+    pub my_turn: bool,
+    pub timers: [Duration; 2],
 }
 
 pub fn main() {
@@ -38,11 +44,15 @@ impl App {
     fn new() -> Self {
         Self {
             game: Mutable::new(ServerMsg {
-                board: Default::default(),
-                cards: Default::default(),
-                turn: Player::Other,
+                state: State {
+                    board: [None; 25],
+                    table_card: 0,
+                    cards: HashMap::new(),
+                    active_eq_red: true,
+                    _p: PhantomData,
+                },
                 timers: [Duration::ZERO; 2],
-                my_color: Color::Blue,
+                my_turn: false,
             }),
             selected: Mutable::new(None),
             timestamp: Mutable::new(0.),
@@ -85,11 +95,11 @@ impl App {
                     .style("flex-direction", "column")
                 })
                 .child(html!("div", {
-                    .class_signal(&*HIDDEN, self.game.signal_ref(|g|g.turn == Player::You))
+                    .class_signal(&*HIDDEN, self.game.signal_ref(|g|g.my_turn))
                     .child(render_card(&self.game, 2, true))
                 }))
                 .child(html!("div", {
-                    .class_signal(&*HIDDEN, self.game.signal_ref(|g|g.turn == Player::Other))
+                    .class_signal(&*HIDDEN, self.game.signal_ref(|g|!g.my_turn))
                     .child(render_card(&self.game, 2, false))
                 }))
             }))
@@ -109,9 +119,9 @@ impl App {
                             .style("border", "solid")
                         })
                         .text_signal(self.game.signal_ref(move |g| {
-                            match g.turn {
-                                Player::You => "You lost",
-                                Player::Other => "You won",
+                            match g.my_turn {
+                                true => "You lost",
+                                false => "You won",
                             }
                         }))
                         .visible_signal(self.done.signal().dedupe())
@@ -138,7 +148,7 @@ impl App {
                         timestamps().map(move |now|{
                             let game = game.lock_ref();
                             let mut time_left = game.timers[1];
-                            if game.turn == Player::Other {
+                            if !game.my_turn {
                                 let elapsed = now.unwrap_or(0.) - start.get();
                                 let elapsed = Duration::from_secs_f64((elapsed / 1000.).abs());
                                 time_left = time_left.saturating_sub(elapsed);
@@ -162,7 +172,7 @@ impl App {
                         timestamps().map(move |now|{
                             let game = game.lock_ref();
                             let mut time_left = game.timers[0];
-                            if game.turn == Player::You {
+                            if game.my_turn {
                                 let elapsed = now.unwrap_or(0.) - start.get();
                                 let elapsed = Duration::from_secs_f64((elapsed / 1000.).abs());
                                 time_left = time_left.saturating_sub(elapsed);

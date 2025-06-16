@@ -3,7 +3,9 @@ use std::sync::LazyLock;
 use dominator::{class, html, Dom};
 use futures_signals::signal::{Mutable, SignalExt};
 
-use onitama_lib::{in_card, ServerMsg};
+use onitama_lib::{in_card, state::PlayerTurn};
+
+use crate::ServerMsg;
 
 pub fn render_card(game: &Mutable<ServerMsg>, card: usize, rotated: bool) -> Dom {
     static CARD: LazyLock<String> = LazyLock::new(|| {
@@ -33,16 +35,28 @@ fn render_card_square(game: &Mutable<ServerMsg>, card: usize, pos: usize, rotate
     static CARD_WHITE: LazyLock<String> = LazyLock::new(|| card_colour("white"));
     static CARD_BLACK: LazyLock<String> = LazyLock::new(|| card_colour("black"));
 
+    let bc = game
+        .signal_ref(move |g| match card {
+            0 => g.state.cards[&PlayerTurn::ACTIVE][0],
+            1 => g.state.cards[&PlayerTurn::ACTIVE][1],
+            2 => g.state.table_card,
+            3 => g.state.cards[&PlayerTurn::ACTIVE][0],
+            4 => g.state.cards[&PlayerTurn::ACTIVE][1],
+            _ => panic!(),
+        })
+        .dedupe()
+        .broadcast();
+
     if pos == 12 {
         html!("div", {
             .class(if rotated {&*CARD_BLACK} else {&*CARD_WHITE})
         })
     } else {
         html!("div", {
-            .class_signal(&*CARD_YES, game.signal_ref(move|g|{g.cards[card]}).dedupe().map(move |card|{
+            .class_signal(&*CARD_YES, bc.signal().map(move |card|{
                 in_card(pos, card)
             }).dedupe())
-            .class_signal(&*CARD_NO, game.signal_ref(move|g|{g.cards[card]}).dedupe().map(move|card|{
+            .class_signal(&*CARD_NO, bc.signal().map(move|card|{
                 !in_card(pos, card)
             }).dedupe())
         })

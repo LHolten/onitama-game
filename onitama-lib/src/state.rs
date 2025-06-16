@@ -2,18 +2,18 @@ use std::{array, collections::HashMap, hash::Hash, marker::PhantomData};
 
 use crate::PieceKind;
 
-#[derive(Clone, Copy)]
-pub struct Piece<Player>(pub Player, pub PieceKind);
+#[derive(Clone, Copy, PartialEq)]
+pub struct Piece<Player = PlayerTurn>(pub Player, pub PieceKind);
 
 pub struct State<Pos = Perspective, Player = PlayerTurn> {
     pub board: [Option<Piece<Player>>; 25],
     pub table_card: usize,
-    pub player_cards: HashMap<Player, [usize; 2]>,
+    pub cards: HashMap<Player, [usize; 2]>,
     pub active_eq_red: bool,
     pub _p: PhantomData<Pos>,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct PlayerTurn {
     pub is_active: bool,
 }
@@ -39,6 +39,12 @@ impl PlayerColor {
 pub struct NamedField {
     pub col: char, // one of a, b, c, d, e
     pub row: char, // one of 1, 2, 3, 4, 5
+}
+
+impl std::fmt::Display for NamedField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.col, self.row)
+    }
 }
 
 impl PosRange for NamedField {
@@ -128,7 +134,7 @@ impl<A, B> State<A, B> {
             board,
             active_eq_red,
             table_card,
-            player_cards,
+            cards,
             _p,
         } = self;
 
@@ -143,7 +149,7 @@ impl<A, B> State<A, B> {
             board: new_board,
             active_eq_red,
             table_card,
-            player_cards: player_cards
+            cards: cards
                 .into_iter()
                 .map(|(k, v)| (k.translate(active_eq_red), v))
                 .collect(),

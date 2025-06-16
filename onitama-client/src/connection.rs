@@ -1,9 +1,9 @@
 use core::str;
-use std::cell::OnceCell;
+use std::{cell::OnceCell, time::Duration};
 
-use crate::App;
+use crate::{App, ServerMsg};
 use dominator::Dom;
-use onitama_lib::{LitamaMsg, ServerMsg, State};
+use onitama_lib::{state::State, Color, LitamaMsg, StateMsg};
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::{window, MessageEvent};
 
@@ -43,12 +43,21 @@ pub fn game_dom(url: &str) -> Dom {
                 PLAYER_IDX.with(|x| x.set(index)).unwrap();
             }
             LitamaMsg::State { match_id: _, state } => {
-                let (State::InProgress { extra, .. } | State::Ended { extra, .. }) = state else {
+                let (StateMsg::InProgress { extra, .. } | StateMsg::Ended { extra, .. }) = state
+                else {
                     return;
                 };
                 let my_color = extra.indices.find(PLAYER_IDX.with(|x| *x.get().unwrap()));
+                let mut state = State::from_state(extra);
+                let my_turn = state.active_eq_red == (my_color == Color::Red);
+                // pretend that we are the active player
+                state.active_eq_red = my_color == Color::Red;
 
-                game_clone.set(ServerMsg::from_state(extra, my_color));
+                game_clone.set(ServerMsg {
+                    state: state.translate(),
+                    my_turn,
+                    timers: [Duration::ZERO; 2],
+                });
                 timestamp_clone.set(window().unwrap().performance().unwrap().now())
             }
             _ => {}

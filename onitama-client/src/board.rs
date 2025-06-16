@@ -9,7 +9,11 @@ use dominator::{
 };
 use futures_signals::signal::{Signal, SignalExt};
 
-use onitama_lib::{check_move, ClientMsg, Piece, PieceKind, Player};
+use onitama_lib::{
+    check_move,
+    state::{Piece, PlayerTurn},
+    ClientMsg, PieceKind,
+};
 use web_sys::WebSocket;
 
 use crate::App;
@@ -62,29 +66,29 @@ impl App {
             .event(move |_: MouseDown|{
                 let from = selected.get();
                 let mut g = game.lock_mut();
-                let square = g.board[pos];
-                if g.turn != Player::You {
+                let square = g.state.board[pos];
+                if !g.my_turn {
                     return ;
                 }
-                if from != Some(pos) && square.is_some() && square.unwrap().0 == Player::You {
+                if from != Some(pos) && square.map(|x|x.0) == Some(PlayerTurn::ACTIVE) {
                     selected.set(Some(pos));
-                } else if from.is_some() && check_move(&mut*g, from.unwrap(), pos).is_some() {
-                    let card = check_move(&mut*g, from.unwrap(), pos).unwrap();
+                } else if from.is_some() && check_move(&mut g.state, from.unwrap(), pos).is_some() {
+                    let card = check_move(&mut g.state, from.unwrap(), pos).unwrap();
 
                     selected.set(None);
-                    g.turn = Player::Other;
+                    g.my_turn = false;
 
                     let msg = ClientMsg { from: from.unwrap(), to: pos, card };
                     let info = info.get_cloned();
 
-                    let buf = msg.format_litama(info.0, info.1, g.my_color);
+                    let buf = msg.format_litama(info.0, info.1, g.state.active_eq_red);
                     socket_clone.send_with_str(&buf).unwrap();
                 } else {
                     selected.set(None);
                 }
             })
             .apply(|mut dom| {
-                for player in [Player::Other, Player::You] {
+                for player in [PlayerTurn::ACTIVE, PlayerTurn::WAITING] {
                     for kind in [PieceKind::Pawn, PieceKind::King] {
                         let piece = Piece(player, kind);
                         dom = dom.child(
@@ -92,7 +96,7 @@ impl App {
                             .class(&*OVERLAY_CLASS)
                             .visible_signal(
                                 self.game.signal_ref(move |g| {
-                                    g.board[pos] == Some(piece)
+                                    g.state.board[pos] == Some(piece)
                                 }).dedupe()
                             ).into_dom()
                         )
@@ -118,7 +122,7 @@ impl App {
             let mut game = game.lock_mut();
             if from == pos {
                 Some(Overlay::Highlight)
-            } else if check_move(&mut *game, from, pos).is_some() {
+            } else if check_move(&mut game.state, from, pos).is_some() {
                 Some(Overlay::Dot)
             } else {
                 None
@@ -129,10 +133,10 @@ impl App {
 
 fn piece_render(piece: &Piece) -> DomBuilder<HtmlElement> {
     let file = match piece {
-        Piece(Player::You, PieceKind::King) => "wB.svg",
-        Piece(Player::You, PieceKind::Pawn) => "wP.svg",
-        Piece(Player::Other, PieceKind::King) => "bB.svg",
-        Piece(Player::Other, PieceKind::Pawn) => "bP.svg",
+        Piece(PlayerTurn::ACTIVE, PieceKind::King) => "wB.svg",
+        Piece(PlayerTurn::ACTIVE, PieceKind::Pawn) => "wP.svg",
+        Piece(PlayerTurn::WAITING, PieceKind::King) => "bB.svg",
+        Piece(PlayerTurn::WAITING, PieceKind::Pawn) => "bP.svg",
     };
 
     DomBuilder::new_html("img")

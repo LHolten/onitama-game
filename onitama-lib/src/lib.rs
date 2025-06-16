@@ -5,17 +5,15 @@ extern crate serde;
 use boolinator::Boolinator;
 use serde::{Deserialize, Serialize};
 use std::{
-    array,
     cmp::{max, min},
     collections::HashMap,
     convert::TryInto,
     iter::FromIterator,
     mem::{replace, take},
     ops::Not,
-    time::Duration,
 };
 
-use crate::state::{NamedField, Perspective, PlayerTurn};
+use crate::state::{NamedField, Perspective, Piece, PlayerColor, PlayerTurn, PosRange, Translate};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClientMsg {
@@ -25,13 +23,17 @@ pub struct ClientMsg {
 }
 
 impl ClientMsg {
-    pub fn format_litama(self, match_id: String, token: String, color: Color) -> String {
-        format!(
-            "move {match_id} {token} {} {}{}",
-            self.card,
-            color.format_pos(self.from),
-            color.format_pos(self.to)
-        )
+    pub fn format_litama(self, match_id: String, token: String, active_eq_red: bool) -> String {
+        let from: NamedField = Perspective::range()
+            .nth(self.from)
+            .unwrap()
+            .translate(active_eq_red);
+        let to: NamedField = Perspective::range()
+            .nth(self.to)
+            .unwrap()
+            .translate(active_eq_red);
+
+        format!("move {match_id} {token} {} {from}{to}", self.card)
     }
 }
 
@@ -53,7 +55,7 @@ pub enum LitamaMsg {
     State {
         match_id: String,
         #[serde(flatten)]
-        state: State,
+        state: StateMsg,
     },
     Move {
         match_id: String,
@@ -70,7 +72,7 @@ pub enum LitamaMsg {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all_fields = "camelCase")]
 #[serde(tag = "gameState")]
-pub enum State {
+pub enum StateMsg {
     #[serde(rename = "waiting for player")]
     Waiting { usernames: Sides<String> },
     #[serde(rename = "in progress")]
@@ -139,33 +141,6 @@ pub enum Color {
     Red,
 }
 
-impl Color {
-    pub fn other(self) -> Color {
-        match self {
-            Color::Blue => Color::Red,
-            Color::Red => Color::Blue,
-        }
-    }
-
-    pub fn format_pos(self, mut pos: usize) -> String {
-        if self == Color::Red {
-            pos = 24 - pos;
-        }
-        let x = ['a', 'b', 'c', 'd', 'e'][pos % 5];
-        let y = 5 - (pos / 5);
-        format!("{x}{y}")
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ServerMsg {
-    pub board: [Option<Piece>; 25],
-    pub cards: [usize; 5],
-    pub timers: [Duration; 2],
-    pub turn: Player,
-    pub my_color: Color,
-}
-
 pub fn card_to_pos(name: String) -> usize {
     CARDS.iter().position(|c| c.0 == name).unwrap()
 }
@@ -186,9 +161,9 @@ pub fn collect_array<T, const N: usize>(iter: impl IntoIterator<Item = T>) -> [T
         .unwrap()
 }
 
-impl ServerMsg {
-    pub fn from_state(extra: ExtraState, my_color: Color) -> Self {
-        let state = crate::state::State {
+impl state::State<NamedField, PlayerColor> {
+    pub fn from_state(extra: ExtraState) -> Self {
+        crate::state::State {
             board: collect_array(extra.board.chars().map(|c| {
                 [
                     None,
@@ -199,7 +174,7 @@ impl ServerMsg {
                 ][c.to_digit(10).unwrap() as usize]
             })),
             table_card: card_to_pos(extra.cards.side),
-            player_cards: HashMap::from_iter([
+            cards: HashMap::from_iter([
                 (
                     state::PlayerColor::RED,
                     player_card_to_pos(extra.cards.players.red),
@@ -209,52 +184,17 @@ impl ServerMsg {
                     player_card_to_pos(extra.cards.players.blue),
                 ),
             ]),
-            active_eq_red: my_color == Color::Red,
+            active_eq_red: extra.current_turn == Color::Red,
             _p: std::marker::PhantomData::<NamedField>,
-        };
-
-        let state: state::State = state.translate();
-        let board = state.board.map(|piece| {
-            piece.map(|piece| {
-                let player = [Player::Other, Player::You][piece.0.is_active as usize];
-                Piece(player, piece.1)
-            })
-        });
-
-        Self {
-            timers: [Duration::ZERO; 2],
-            turn: if extra.current_turn == my_color {
-                Player::You
-            } else {
-                Player::Other
-            },
-            cards: [
-                state.player_cards[&PlayerTurn::ACTIVE][0],
-                state.player_cards[&PlayerTurn::ACTIVE][1],
-                state.table_card,
-                state.player_cards[&PlayerTurn::WAITING][0],
-                state.player_cards[&PlayerTurn::WAITING][1],
-            ],
-            board,
-            my_color,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PieceKind {
     Pawn,
     King,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum Player {
-    Other,
-    You,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Piece(pub Player, pub PieceKind);
 
 pub fn get_offset(pos: usize, from: usize) -> Option<usize> {
     let (pos_x, pos_y) = (pos % 5, pos / 5);
@@ -280,24 +220,28 @@ pub fn apply_offset(offset: usize, from: usize) -> Option<usize> {
     }
 }
 
-const KING: Option<Piece> = Some(Piece(Player::You, PieceKind::King));
-const OPP_KING: Option<Piece> = Some(Piece(Player::Other, PieceKind::King));
+const KING: Option<Piece> = Some(Piece(PlayerTurn::ACTIVE, PieceKind::King));
+const OPP_KING: Option<Piece> = Some(Piece(PlayerTurn::WAITING, PieceKind::King));
 
-pub fn is_mate(game: &mut ServerMsg) -> bool {
+// check for mate assuming that there is no check on the active player
+pub fn is_mate(game: &mut state::State) -> bool {
     let opp_king = game.board.iter().position(|&p| p == OPP_KING).unwrap();
     if let Some(offset) = get_offset(opp_king, 22) {
-        if in_card(offset, game.cards[3]) || in_card(offset, game.cards[4]) {
+        if game.cards[&PlayerTurn::WAITING]
+            .iter()
+            .any(|c| in_card(offset, *c))
+        {
             return true;
         }
     }
     !(0..25).any(|from| (0..25).any(|to| check_move(game, from, to).is_some()))
 }
 
-pub fn check_move(game: &mut ServerMsg, from: usize, to: usize) -> Option<&'static str> {
+pub fn check_move(game: &mut state::State, from: usize, to: usize) -> Option<&'static str> {
     let piece = game.board[from]?;
-    (piece.0 == Player::You).as_option()?;
+    (piece.0 == PlayerTurn::ACTIVE).as_option()?;
     let other = game.board[to];
-    (other.is_none() || other.unwrap().0 == Player::Other).as_option()?;
+    (other.is_none() || other.unwrap().0 == PlayerTurn::WAITING).as_option()?;
 
     let piece = take(&mut game.board[from]);
     let tmp = replace(&mut game.board[to], piece);
@@ -307,21 +251,20 @@ pub fn check_move(game: &mut ServerMsg, from: usize, to: usize) -> Option<&'stat
     check.not().as_option()?;
 
     let offset = get_offset(to, from)?;
-    if in_card(offset, game.cards[0]) {
-        Some(CARDS[game.cards[0]].0)
-    } else if in_card(offset, game.cards[1]) {
-        Some(CARDS[game.cards[1]].0)
-    } else {
-        None
-    }
+    game.cards[&PlayerTurn::ACTIVE]
+        .iter()
+        .find(|x| in_card(offset, **x))
+        .map(|c| CARDS[*c].0)
 }
 
-fn is_check(game: &ServerMsg) -> bool {
+fn is_check(game: &state::State) -> bool {
     let king = game.board.iter().position(|&p| p == KING).unwrap();
-    is_check_card(game, king, game.cards[3]) || is_check_card(game, king, game.cards[4])
+    game.cards[&PlayerTurn::WAITING]
+        .iter()
+        .any(|c| is_check_card(game, king, *c))
 }
 
-fn is_check_card(game: &ServerMsg, from: usize, card: usize) -> bool {
+fn is_check_card(game: &state::State, from: usize, card: usize) -> bool {
     CARDS[card]
         .1
         .iter()
@@ -329,7 +272,7 @@ fn is_check_card(game: &ServerMsg, from: usize, card: usize) -> bool {
         .flatten()
         .any(|pos| {
             let piece = game.board[pos];
-            piece.is_some() && piece.unwrap().0 == Player::Other
+            piece.is_some() && piece.unwrap().0 == PlayerTurn::WAITING
         })
 }
 
