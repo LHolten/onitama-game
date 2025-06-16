@@ -46,21 +46,34 @@ impl Perspective {
     }
 }
 
-pub trait Translate<From> {
-    fn translate(val: From, active_eq_red: bool) -> Self;
+pub trait Translate<To> {
+    fn translate(self, active_eq_red: bool) -> To;
 }
 
 impl<X> Translate<X> for X {
-    fn translate(val: X, _active_eq_red: bool) -> Self {
-        val
+    fn translate(self, _active_eq_red: bool) -> X {
+        self
     }
 }
 
 impl Translate<NamedField> for Perspective {
-    fn translate(val: NamedField, active_eq_red: bool) -> Self {
-        let mut res = Self {
-            col: val.col as u8 - 'a' as u8,
-            row: '5' as u8 - val.row as u8,
+    fn translate(mut self, active_eq_red: bool) -> NamedField {
+        if active_eq_red {
+            self.col = 4 - self.col;
+            self.row = 4 - self.row;
+        }
+        NamedField {
+            col: ('a' as u8 + self.col) as char,
+            row: ('5' as u8 - self.row) as char,
+        }
+    }
+}
+
+impl Translate<Perspective> for NamedField {
+    fn translate(self, active_eq_red: bool) -> Perspective {
+        let mut res = Perspective {
+            col: self.col as u8 - 'a' as u8,
+            row: '5' as u8 - self.row as u8,
         };
         if active_eq_red {
             res.col = 4 - res.col;
@@ -70,40 +83,27 @@ impl Translate<NamedField> for Perspective {
     }
 }
 
-impl Translate<Perspective> for NamedField {
-    fn translate(mut val: Perspective, active_eq_red: bool) -> Self {
-        if active_eq_red {
-            val.col = 4 - val.col;
-            val.row = 4 - val.row;
-        }
-        Self {
-            col: ('a' as u8 + val.col) as char,
-            row: ('5' as u8 - val.row) as char,
-        }
-    }
-}
-
 impl Translate<PlayerColor> for PlayerTurn {
-    fn translate(val: PlayerColor, active_eq_red: bool) -> Self {
-        Self {
-            is_active: val.is_red == active_eq_red,
+    fn translate(self, active_eq_red: bool) -> PlayerColor {
+        PlayerColor {
+            is_red: self.is_active == active_eq_red,
         }
     }
 }
 
 impl Translate<PlayerTurn> for PlayerColor {
-    fn translate(val: PlayerTurn, active_eq_red: bool) -> Self {
-        Self {
-            is_red: val.is_active == active_eq_red,
+    fn translate(self, active_eq_red: bool) -> PlayerTurn {
+        PlayerTurn {
+            is_active: self.is_red == active_eq_red,
         }
     }
 }
 
 impl<A, B> State<A, B> {
-    pub fn translate<X, Y>(self) -> State<X, Y>
+    pub fn translate<X: Eq + Hash, Y: Eq + Hash>(self) -> State<X, Y>
     where
-        X: Translate<A> + Eq + Hash,
-        Y: Translate<B> + Eq + Hash,
+        A: Translate<X>,
+        B: Translate<Y>,
     {
         let State {
             pieces,
@@ -117,9 +117,9 @@ impl<A, B> State<A, B> {
                 .into_iter()
                 .map(|(k, v)| {
                     (
-                        X::translate(k, active_eq_red),
+                        k.translate(active_eq_red),
                         Piece {
-                            player: Y::translate(v.player, active_eq_red),
+                            player: v.player.translate(active_eq_red),
                             kind: v.kind,
                         },
                     )
@@ -129,7 +129,7 @@ impl<A, B> State<A, B> {
             table_card,
             player_cards: player_cards
                 .into_iter()
-                .map(|(k, v)| (Y::translate(k, active_eq_red), v))
+                .map(|(k, v)| (k.translate(active_eq_red), v))
                 .collect(),
         }
     }
