@@ -27,9 +27,21 @@ pub struct NamedField {
     row: char, // one of 1, 2, 3, 4, 5
 }
 
+impl NamedField {
+    pub fn range() -> impl Iterator<Item = Self> {
+        ('1'..='5').flat_map(|row| ('a'..='e').map(move |col| Self { col, row }))
+    }
+}
+
 pub struct Perspective {
     col: u8, // left to right for active player
     row: u8, // back to front for active player
+}
+
+impl Perspective {
+    pub fn range() -> impl Iterator<Item = Self> {
+        (0..5).flat_map(|row| (0..5).map(move |col| Self { col, row }))
+    }
 }
 
 pub trait Translate<From> {
