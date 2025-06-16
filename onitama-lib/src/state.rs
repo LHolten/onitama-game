@@ -8,7 +8,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::{Cards, PieceKind, Sides, CARDS};
+use crate::{get_offset, in_card, Cards, PieceKind, Sides, CARDS};
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Piece<Player = PlayerTurn>(pub Player, pub PieceKind);
@@ -80,6 +80,10 @@ impl State {
             .iter()
             .position(|x| x.0 == card)
             .ok_or("unknown card name")?;
+        let offset = get_offset(to, from).ok_or("move too far")?;
+        if !in_card(offset, card) {
+            return Err("invalid move for card".into());
+        }
         let have = self
             .cards
             .get_mut(&PlayerTurn::ACTIVE)

@@ -1,19 +1,16 @@
-use onitama_lib::state::{NamedField, Piece, PlayerColor, State};
+use onitama_lib::state::{NamedField, Piece, PlayerColor, PlayerTurn, State};
 use onitama_lib::{
-    board_from_str, card_to_pos, Cards, Color, ExtraState, LitamaMsg, PieceKind, Sides, StateMsg,
+    board_from_str, card_to_pos, Color, ExtraState, LitamaMsg, PieceKind, Sides, StateMsg,
     DEFAULT_BOARD,
 };
 use rand::seq::SliceRandom;
-use rand::Rng;
 use rust_query::migration::{schema, Config};
 use rust_query::{
     Database, FromExpr, IntoExpr, LocalClient, TableRow, Transaction, TransactionMut, Update,
 };
 use std::error::Error;
 use std::iter::FromIterator;
-use std::mem::swap;
 use std::str::FromStr;
-use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use simple_websockets::{Event, Message, Responder};
@@ -57,7 +54,8 @@ pub struct Client {
 
 impl Client {
     pub fn send_msg(&self, msg: LitamaMsg) {
-        todo!()
+        let msg = serde_json::to_string(&msg).unwrap();
+        self.responder.send(Message::Text(msg));
     }
 }
 
@@ -192,24 +190,56 @@ pub fn handle_message(
         "state" => {
             client.send_msg(LitamaMsg::State {
                 match_id: match_id.to_owned(),
-                state: read_state(&txn, m_row),
+                state: read_state_msg(&txn, m_row),
             });
         }
         "move" => {
             let token = *parts.get(2).ok_or("expected token")?;
             let card = *parts.get(3).ok_or("expected card")?;
-            let movee = *parts.get(4).ok_or("expected move")?;
-            if movee.len() != 4 || !movee.is_ascii() {
+            let from_to = *parts.get(4).ok_or("expected move")?;
+            if from_to.len() != 4 || !from_to.is_ascii() {
                 return Err("move has unexpected len or is not ascii".into());
             }
+            let from = NamedField::from_str(&from_to[..2])?;
+            let to = NamedField::from_str(&from_to[2..])?;
 
-            let m: Match!(
-                create_token,
-                join_token,
-                create_color,
-                history,
-                starting_cards
-            ) = txn.query_one(FromExpr::from_expr(m_row));
+            let m: Match!(create_token, join_token, create_color, history) =
+                txn.query_one(FromExpr::from_expr(m_row));
+
+            let is_red = if token == m.create_token {
+                m.create_color == "red"
+            } else if token == m.join_token {
+                m.create_color != "red"
+            } else {
+                return Err("token not recognized".into());
+            };
+
+            let msg = read_state_msg(&txn, m_row);
+            let StateMsg::InProgress { extra, .. } = msg else {
+                return Err("game must be in progress".into());
+            };
+
+            let state = State::from_state(extra);
+            if state.active_eq_red != is_red {
+                return Err("it is not your turn".into());
+            }
+
+            let mut state: State = state.translate();
+            state.make_move(card, from, to)?;
+
+            let mut history = m.history;
+            if !history.is_empty() {
+                history.push(',');
+            }
+            history.push_str(&format!("{card}:{from_to}"));
+
+            txn.update_ok(
+                m_row,
+                Match {
+                    history: Update::set(history),
+                    ..Default::default()
+                },
+            );
 
             client.send_msg(LitamaMsg::Move {
                 match_id: match_id.to_owned(),
@@ -218,7 +248,7 @@ pub fn handle_message(
             for other in clients.values() {
                 other.send_msg(LitamaMsg::State {
                     match_id: match_id.to_owned(),
-                    state: read_state(&txn, m_row), // TODO: maybe optimize this?
+                    state: read_state_msg(&txn, m_row), // TODO: maybe optimize this?
                 });
             }
         }
@@ -231,7 +261,7 @@ pub fn handle_message(
 
             client.send_msg(LitamaMsg::State {
                 match_id: match_id.to_owned(),
-                state: read_state(&txn, m_row),
+                state: read_state_msg(&txn, m_row),
             });
         }
         _ => return Err("unknown command".into()),
@@ -241,7 +271,7 @@ pub fn handle_message(
     Ok(())
 }
 
-pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>) -> StateMsg {
+pub fn read_state_msg<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>) -> StateMsg {
     let m: Match!(
         create_name,
         join_name,
@@ -292,152 +322,50 @@ pub fn read_state<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>)
         state.make_move(card, from, to).unwrap();
     }
 
+    let usernames = Sides {
+        blue: blue_name,
+        red: red_name,
+    };
+
+    // check if the current player has lost
+    let lost = !state
+        .board
+        .iter()
+        .any(|x| *x == Some(Piece(PlayerTurn::ACTIVE, PieceKind::King)))
+        || state.board[22] == Some(Piece(PlayerTurn::WAITING, PieceKind::King));
+    let winner = lost.then(|| match state.active_eq_red {
+        true => "blue",
+        false => "red",
+    });
+
     let state: State<NamedField, PlayerColor> = state.translate();
 
-    StateMsg::InProgress {
-        usernames: Sides {
-            blue: blue_name,
-            red: red_name,
+    let extra = ExtraState {
+        indices: Sides {
+            blue: (m.create_color == "red") as usize,
+            red: (m.create_color == "blue") as usize,
         },
-        extra: ExtraState {
-            indices: Sides {
-                blue: (m.create_color == "red") as usize,
-                red: (m.create_color == "blue") as usize,
-            },
-            current_turn: [Color::Blue, Color::Red][moves.len() % 2],
-            cards: state.cards(),
-            starting_cards,
-            moves,
-            board: state
-                .board
-                .iter()
-                .map(|p| match p {
-                    None => '0',
-                    Some(Piece(PlayerColor::BLUE, PieceKind::Pawn)) => '1',
-                    Some(Piece(PlayerColor::BLUE, PieceKind::King)) => '2',
-                    Some(Piece(PlayerColor::RED, PieceKind::Pawn)) => '3',
-                    Some(Piece(PlayerColor::RED, PieceKind::King)) => '4',
-                })
-                .collect(),
-            winner: "none".to_owned(),
-        },
+        current_turn: [Color::Blue, Color::Red][moves.len() % 2],
+        cards: state.cards(),
+        starting_cards,
+        moves,
+        board: state
+            .board
+            .iter()
+            .map(|p| match p {
+                None => '0',
+                Some(Piece(PlayerColor::BLUE, PieceKind::Pawn)) => '1',
+                Some(Piece(PlayerColor::BLUE, PieceKind::King)) => '2',
+                Some(Piece(PlayerColor::RED, PieceKind::Pawn)) => '3',
+                Some(Piece(PlayerColor::RED, PieceKind::King)) => '4',
+            })
+            .collect(),
+        winner: winner.unwrap_or("none").to_owned(),
+    };
+
+    if winner.is_some() {
+        StateMsg::Ended { usernames, extra }
+    } else {
+        StateMsg::InProgress { usernames, extra }
     }
 }
-
-// fn handle_game(mut conn1: WS, mut conn2: WS) {
-//     conn1.get_ref().set_nodelay(true).unwrap();
-//     conn2.get_ref().set_nodelay(true).unwrap();
-
-//     let mut game = new_game();
-
-//     while game_turn(&mut game, &mut conn1, &mut conn2).is_some() {
-//         swap(&mut conn1, &mut conn2);
-//     }
-
-//     close_connection(conn1);
-//     close_connection(conn2);
-
-//     println!("game over");
-// }
-
-// fn close_connection(mut conn: WS) {
-//     conn.close(None).unwrap();
-//     while conn.read_message().is_ok() {}
-// }
-
-// fn game_turn(game: &mut ServerMsg, conn_curr: &mut WS, conn_other: &mut WS) -> Option<()> {
-//     let buf = serialize(&game).unwrap();
-//     conn_other.write_message(Message::Binary(buf)).ok()?;
-//     conn_other.write_pending().ok()?;
-
-//     mirror_game(game);
-
-//     let buf = serialize(&game).unwrap();
-//     conn_curr.write_message(Message::Binary(buf)).ok()?;
-//     conn_curr.write_pending().ok()?;
-
-//     if is_mate(game) {
-//         return None;
-//     }
-
-//     let now = Instant::now();
-
-//     let action: ClientMsg = loop {
-//         let timeout = game.timers[0].saturating_sub(now.elapsed());
-//         if timeout.is_zero() {
-//             return None;
-//         }
-//         conn_curr.get_ref().set_read_timeout(Some(timeout)).unwrap();
-//         match conn_curr.read_message().ok()? {
-//             Message::Binary(data) => {
-//                 break deserialize(&data[..]).ok()?;
-//             }
-//             Message::Ping(_) => conn_curr.write_pending().ok()?,
-//             _ => return None,
-//         }
-//     };
-
-//     game.timers[0] = game.timers[0].saturating_sub(now.elapsed()) + Duration::from_secs(2);
-
-//     println!("got action");
-
-//     check_move(game, action.from, action.to)?;
-
-//     let offset = get_offset(action.to, action.from).unwrap();
-//     let index = match (
-//         in_card(offset, game.cards[0]),
-//         in_card(offset, game.cards[1]),
-//     ) {
-//         (true, true) => thread_rng().gen::<bool>() as usize,
-//         (true, false) => 0,
-//         (false, true) => 1,
-//         (false, false) => unreachable!(),
-//     };
-
-//     game.cards.swap(index, 2);
-//     game.board[action.to] = game.board[action.from].take();
-//     flip_player(&mut game.turn);
-
-//     Some(())
-// }
-
-// fn mirror_game(game: &mut ServerMsg) {
-//     game.board.reverse();
-//     for piece in game.board.iter_mut().flatten() {
-//         flip_player(&mut piece.0);
-//     }
-//     game.cards.reverse();
-//     flip_player(&mut game.turn);
-//     game.timers.reverse();
-// }
-
-// fn flip_player(player: &mut Player) {
-//     if *player == Player::You {
-//         *player = Player::Other
-//     } else {
-//         *player = Player::You
-//     }
-// }
-
-// fn new_game() -> ServerMsg {
-//     let mut board = Vec::default();
-//     board.extend_from_slice(&home_row(Player::Other));
-//     for _ in 0..15 {
-//         board.push(None);
-//     }
-//     board.extend_from_slice(&home_row(Player::You));
-
-//     let cards: [usize; 16] = (0..16).collect::<Vec<usize>>().try_into().unwrap();
-
-//     ServerMsg {
-//         board: board.try_into().unwrap(),
-//         cards: cards
-//             .choose_multiple(&mut thread_rng(), 5)
-//             .copied()
-//             .collect::<Vec<usize>>()
-//             .try_into()
-//             .unwrap(),
-//         timers: [Duration::from_secs(60 * 3); 2],
-//         turn: Player::Other,
-//     }
-// }
