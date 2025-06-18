@@ -1,6 +1,6 @@
 use onitama_lib::state::{NamedField, Piece, PlayerColor, PlayerTurn, State};
 use onitama_lib::{
-    board_from_str, card_to_pos, Color, ExtraState, LitamaMsg, PieceKind, Sides, StateMsg,
+    board_from_str, card_to_pos, Color, ExtraState, LitamaMsg, PieceKind, Sides, StateMsg, CARDS,
     DEFAULT_BOARD,
 };
 use rand::random;
@@ -28,8 +28,7 @@ pub mod vN {
         pub create_name: String,
         pub join_name: Option<String>,
 
-        // either "red" or "blue", this is secret until the second player joins
-        // "blue" is always the starting player.
+        // either "red" or "blue"
         pub create_color: String,
         // concatenation of blue1,blue2,red1,red2,side
         pub starting_cards: String,
@@ -320,7 +319,8 @@ pub fn read_state_msg<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Mat
             (PlayerColor::BLUE, [starting_cards[0], starting_cards[1]]),
             (PlayerColor::RED, [starting_cards[2], starting_cards[3]]),
         ]),
-        active_eq_red: false,
+        // side card determines starting player
+        active_eq_red: CARDS[starting_cards[4]].2 == PlayerColor::RED,
         _p: std::marker::PhantomData::<NamedField>,
     };
     let starting_cards = state.cards();
@@ -356,7 +356,7 @@ pub fn read_state_msg<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Mat
             blue: (m.create_color == "red") as usize,
             red: (m.create_color == "blue") as usize,
         },
-        current_turn: [Color::Blue, Color::Red][moves.len() % 2],
+        current_turn: [Color::Blue, Color::Red][state.active_eq_red as usize],
         cards: state.cards(),
         starting_cards,
         moves,

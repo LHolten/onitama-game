@@ -296,21 +296,21 @@ pub fn in_card(offset: usize, card: usize) -> bool {
 // 5 6 7 8 9  10
 // 0 1 2 3 4  20
 
-pub static CARDS: &[(&str, &[usize])] = &[
-    ("ox", &[7, 13, 17]),
-    ("boar", &[7, 11, 13]),
-    ("horse", &[7, 11, 17]),
-    ("elephant", &[6, 8, 11, 13]),
-    ("crab", &[7, 10, 14]),
-    ("tiger", &[2, 17]),
-    ("monkey", &[6, 8, 16, 18]),
-    ("crane", &[7, 16, 18]),
-    ("dragon", &[5, 9, 16, 18]),
-    ("mantis", &[6, 8, 17]),
-    ("frog", &[6, 10, 18]),
-    ("rabbit", &[8, 14, 16]),
-    ("goose", &[6, 11, 13, 18]),
-    ("rooster", &[8, 11, 13, 16]),
-    ("eel", &[6, 13, 16]),
-    ("cobra", &[8, 11, 18]),
+pub static CARDS: &[(&str, &[usize], PlayerColor)] = &[
+    ("ox", &[7, 13, 17], PlayerColor::BLUE),
+    ("boar", &[7, 11, 13], PlayerColor::RED),
+    ("horse", &[7, 11, 17], PlayerColor::RED),
+    ("elephant", &[6, 8, 11, 13], PlayerColor::RED),
+    ("crab", &[7, 10, 14], PlayerColor::BLUE),
+    ("tiger", &[2, 17], PlayerColor::BLUE),
+    ("monkey", &[6, 8, 16, 18], PlayerColor::BLUE),
+    ("crane", &[7, 16, 18], PlayerColor::BLUE),
+    ("dragon", &[5, 9, 16, 18], PlayerColor::RED),
+    ("mantis", &[6, 8, 17], PlayerColor::RED),
+    ("frog", &[6, 10, 18], PlayerColor::RED),
+    ("rabbit", &[8, 14, 16], PlayerColor::BLUE),
+    ("goose", &[6, 11, 13, 18], PlayerColor::BLUE),
+    ("rooster", &[8, 11, 13, 16], PlayerColor::RED),
+    ("eel", &[6, 13, 16], PlayerColor::BLUE),
+    ("cobra", &[8, 11, 18], PlayerColor::RED),
 ];
