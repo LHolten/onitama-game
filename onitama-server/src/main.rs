@@ -59,7 +59,7 @@ fn main() {
 
     let mut db_client = LocalClient::try_new().unwrap();
     let db: Database<Schema> = db_client
-        .migrator(Config::open_in_memory())
+        .migrator(Config::open("db.sqlite"))
         .unwrap()
         .finish()
         .unwrap();
