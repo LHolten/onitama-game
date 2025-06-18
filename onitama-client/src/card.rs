@@ -40,8 +40,8 @@ fn render_card_square(game: &Mutable<ServerMsg>, card: usize, pos: usize, rotate
             0 => g.state.cards[&PlayerTurn::ACTIVE][0],
             1 => g.state.cards[&PlayerTurn::ACTIVE][1],
             2 => g.state.table_card,
-            3 => g.state.cards[&PlayerTurn::ACTIVE][0],
-            4 => g.state.cards[&PlayerTurn::ACTIVE][1],
+            3 => g.state.cards[&PlayerTurn::WAITING][0],
+            4 => g.state.cards[&PlayerTurn::WAITING][1],
             _ => panic!(),
         })
         .dedupe()

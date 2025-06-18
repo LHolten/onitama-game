@@ -2,11 +2,13 @@ mod board;
 mod card;
 mod connection;
 
-use std::{collections::HashMap, marker::PhantomData, sync::LazyLock, time::Duration};
+use std::{
+    collections::HashMap, iter::FromIterator, marker::PhantomData, sync::LazyLock, time::Duration,
+};
 
 use dominator::{animation::timestamps, class, html, Dom};
 use futures_signals::signal::{Mutable, SignalExt};
-use onitama_lib::state::State;
+use onitama_lib::state::{PlayerTurn, State};
 use web_sys::WebSocket;
 
 use crate::{card::render_card, connection::game_dom};
@@ -47,7 +49,10 @@ impl App {
                 state: State {
                     board: [None; 25],
                     table_card: 0,
-                    cards: HashMap::new(),
+                    cards: HashMap::from_iter([
+                        (PlayerTurn::ACTIVE, [0; 2]),
+                        (PlayerTurn::WAITING, [0; 2]),
+                    ]),
                     active_eq_red: true,
                     _p: PhantomData,
                 },
