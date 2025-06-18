@@ -627,7 +627,6 @@ dependencies = [
  "rust-query",
  "serde_json",
  "simple-websockets",
- "uuid",
 ]
 
 [[package]]

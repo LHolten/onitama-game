@@ -3,15 +3,13 @@ use onitama_lib::{
     board_from_str, card_to_pos, Color, ExtraState, LitamaMsg, PieceKind, Sides, StateMsg,
     DEFAULT_BOARD,
 };
+use rand::random;
 use rand::seq::SliceRandom;
 use rust_query::migration::{schema, Config};
-use rust_query::{
-    Database, FromExpr, IntoExpr, LocalClient, TableRow, Transaction, TransactionMut, Update,
-};
+use rust_query::{Database, FromExpr, LocalClient, TableRow, Transaction, TransactionMut, Update};
 use std::error::Error;
 use std::iter::FromIterator;
 use std::str::FromStr;
-use uuid::Uuid;
 
 use simple_websockets::{Event, Message, Responder};
 use std::collections::HashMap;
@@ -39,13 +37,6 @@ pub mod vN {
 }
 use v0::*;
 
-impl<'t> IntoExpr<'t, Schema> for Uuid {
-    type Typ = String;
-    fn into_expr(self) -> rust_query::Expr<'t, Schema, Self::Typ> {
-        self.to_string().into_expr()
-    }
-}
-
 pub struct Client {
     responder: Responder,
     // these are game_ids
@@ -55,6 +46,7 @@ pub struct Client {
 impl Client {
     pub fn send_msg(&self, msg: LitamaMsg) {
         let msg = serde_json::to_string(&msg).unwrap();
+        println!("{} <== {msg}", self.responder.client_id());
         self.responder.send(Message::Text(msg));
     }
 }
@@ -91,6 +83,10 @@ fn main() {
                 clients.remove(&client_id);
             }
             Event::Message(client_id, message) => {
+                match &message {
+                    Message::Text(msg) => println!("{client_id} ==> {msg}"),
+                    Message::Binary(_) => println!("{client_id} ==> <binary>"),
+                }
                 let txn = db_client.transaction_mut(&db);
                 if let Err(err) = handle_message(message.clone(), client_id, &mut clients, txn) {
                     let client = clients.get(&client_id).unwrap();
@@ -126,9 +122,9 @@ pub fn handle_message(
     if cmd == "create" {
         let username = *parts.get(1).ok_or("expected username")?;
 
-        let match_id = uuid::Uuid::new_v4();
-        let blue_token = uuid::Uuid::new_v4();
-        let red_token = uuid::Uuid::new_v4();
+        let match_id = &random::<[u8; 12]>().map(|x| format!("{x:x}")).join("");
+        let blue_token = &random::<[u8; 32]>().map(|x| format!("{x:x}")).join("");
+        let red_token = &random::<[u8; 32]>().map(|x| format!("{x:x}")).join("");
         let mut rng = rand::thread_rng();
         let cards: Vec<_> = onitama_lib::CARDS
             .choose_multiple(&mut rng, 5)
