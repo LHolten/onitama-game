@@ -12,7 +12,7 @@ use std::iter::FromIterator;
 use std::str::FromStr;
 
 use simple_websockets::{Event, Message, Responder};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[schema(Schema)]
 pub mod vN {
@@ -40,7 +40,7 @@ use v0::*;
 pub struct Client {
     responder: Responder,
     // these are game_ids
-    subscriptions: Vec<String>,
+    subscriptions: HashSet<String>,
 }
 
 impl Client {
@@ -73,7 +73,7 @@ fn main() {
                     client_id,
                     Client {
                         responder,
-                        subscriptions: vec![],
+                        subscriptions: HashSet::new(),
                     },
                 );
             }
@@ -182,6 +182,15 @@ pub fn handle_message(
                 token: m.join_token,
                 index: 1,
             });
+
+            for other in clients.values() {
+                if other.subscriptions.contains(match_id) {
+                    other.send_msg(LitamaMsg::State {
+                        match_id: match_id.to_owned(),
+                        state: read_state_msg(&txn, m_row), // TODO: maybe optimize this?
+                    });
+                }
+            }
         }
         "state" => {
             client.send_msg(LitamaMsg::State {
@@ -242,14 +251,16 @@ pub fn handle_message(
             });
 
             for other in clients.values() {
-                other.send_msg(LitamaMsg::State {
-                    match_id: match_id.to_owned(),
-                    state: read_state_msg(&txn, m_row), // TODO: maybe optimize this?
-                });
+                if other.subscriptions.contains(match_id) {
+                    other.send_msg(LitamaMsg::State {
+                        match_id: match_id.to_owned(),
+                        state: read_state_msg(&txn, m_row), // TODO: maybe optimize this?
+                    });
+                }
             }
         }
         "spectate" => {
-            client.subscriptions.push(match_id.to_owned());
+            client.subscriptions.insert(match_id.to_owned());
 
             client.send_msg(LitamaMsg::Spectate {
                 match_id: match_id.to_owned(),
