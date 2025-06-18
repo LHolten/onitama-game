@@ -60,11 +60,11 @@ impl State<NamedField, PlayerColor> {
 
 impl State {
     pub fn make_move<X: Translate<Perspective>>(
-        &mut self,
+        mut self,
         card: &str,
         from: X,
         to: X,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<Self, Box<dyn Error>> {
         let from = from.translate(self.active_eq_red);
         let from = Perspective::range().position(|x| x == from).unwrap();
         let to = to.translate(self.active_eq_red);
@@ -92,8 +92,12 @@ impl State {
             .find(|x| **x == card)
             .ok_or("you do not have that card")?;
         swap(have, &mut self.table_card);
-        self.active_eq_red ^= true;
-        Ok(())
+
+        // go to global perspective to easily switch active player
+        let mut s: State<NamedField, PlayerColor> = self.translate();
+        s.active_eq_red ^= true;
+
+        Ok(s.translate())
     }
 }
 

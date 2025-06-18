@@ -229,7 +229,7 @@ pub fn handle_message(
                 return Err("it is not your turn".into());
             }
 
-            let mut state: State = state.translate();
+            let state: State = state.translate();
             state.make_move(card, from, to)?;
 
             let mut history = m.history;
@@ -302,7 +302,11 @@ pub fn read_state_msg<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Mat
         (join_name, m.create_name)
     };
 
-    let moves: Vec<_> = m.history.split(',').map(ToOwned::to_owned).collect();
+    let moves: Vec<_> = match m.history.is_empty() {
+        true => Vec::new(),
+        false => m.history.split(',').map(ToOwned::to_owned).collect(),
+    };
+
     let starting_cards: Vec<_> = m
         .starting_cards
         .split(',')
@@ -326,7 +330,7 @@ pub fn read_state_msg<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Mat
         let (card, from_to) = m.split_once(':').unwrap();
         let from = NamedField::from_str(&from_to[..2]).unwrap();
         let to = NamedField::from_str(&from_to[2..]).unwrap();
-        state.make_move(card, from, to).unwrap();
+        state = state.make_move(card, from, to).unwrap();
     }
 
     let usernames = Sides {
