@@ -8,6 +8,6 @@ edition = "2018"
 [dependencies]
 onitama-lib = { path = "../onitama-lib" }
 rand = "0.8.4"
-rust-query = { version = "0.5.0", features = ["bundled"] }
+rust-query = { version = "0.6.0", features = ["bundled"] }
 serde_json = "1.0.140"
 simple-websockets = "0.1.6"

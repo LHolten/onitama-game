@@ -6,7 +6,7 @@ use onitama_lib::{
 use rand::random;
 use rand::seq::SliceRandom;
 use rust_query::migration::{schema, Config};
-use rust_query::{Database, FromExpr, TableRow, Transaction, Update};
+use rust_query::{Database, TableRow, Transaction, Update};
 use std::error::Error;
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -153,19 +153,19 @@ pub fn handle_message(
 
     // all other commands require a valid match_id
     let match_id = *parts.get(1).ok_or("expected match_id")?;
-    let m_row = txn
-        .query_one(Match::unique(match_id))
+    let m = txn
+        .lazy(Match.match_id(match_id))
         .ok_or("match does not exist")?;
+    let m_row = m.table_row();
 
     match cmd {
         "join" => {
             let username = *parts.get(2).ok_or("expected username")?;
 
-            let m: Match!(join_token, join_name) = txn.query_one(FromExpr::from_expr(m_row));
-
             if m.join_name.is_some() {
                 return Err("match is already joined".into());
             }
+            let token = m.join_token.clone();
 
             txn.update_ok(
                 m_row,
@@ -177,7 +177,7 @@ pub fn handle_message(
 
             client.send_msg(LitamaMsg::Join {
                 match_id: match_id.to_owned(),
-                token: m.join_token,
+                token,
                 index: 1,
             });
 
@@ -206,9 +206,6 @@ pub fn handle_message(
             let from = NamedField::from_str(&from_to[..2])?;
             let to = NamedField::from_str(&from_to[2..])?;
 
-            let m: Match!(create_token, join_token, create_color, history) =
-                txn.query_one(FromExpr::from_expr(m_row));
-
             let is_red = if token == m.create_token {
                 m.create_color == "red"
             } else if token == m.join_token {
@@ -230,14 +227,14 @@ pub fn handle_message(
             let state: State = state.translate();
             state.make_move(card, from, to)?;
 
-            let mut history = m.history;
+            let mut history = m.history.clone();
             if !history.is_empty() {
                 history.push(',');
             }
             history.push_str(&format!("{card}:{from_to}"));
 
             txn.update_ok(
-                m_row,
+                m.table_row(),
                 Match {
                     history: Update::set(history),
                     ..Default::default()
@@ -276,27 +273,20 @@ pub fn handle_message(
 }
 
 pub fn read_state_msg<'a>(txn: &Transaction<Schema>, m_row: TableRow<Match>) -> StateMsg {
-    let m: Match!(
-        create_name,
-        join_name,
-        history,
-        create_color,
-        starting_cards
-    ) = txn.query_one(FromExpr::from_expr(m_row));
-
-    let Some(join_name) = m.join_name else {
+    let m = txn.lazy(m_row);
+    let Some(join_name) = &m.join_name else {
         return StateMsg::Waiting {
             usernames: Sides {
                 blue: m.create_name.clone(),
-                red: m.create_name,
+                red: m.create_name.clone(),
             },
         };
     };
 
     let (blue_name, red_name) = if m.create_color == "blue" {
-        (m.create_name, join_name)
+        (&m.create_name, join_name)
     } else {
-        (join_name, m.create_name)
+        (join_name, &m.create_name)
     };
 
     let moves: Vec<_> = match m.history.is_empty() {
@@ -332,8 +322,8 @@ pub fn read_state_msg<'a>(txn: &Transaction<Schema>, m_row: TableRow<Match>) -> 
     }
 
     let usernames = Sides {
-        blue: blue_name,
-        red: red_name,
+        blue: blue_name.clone(),
+        red: red_name.clone(),
     };
 
     // check if the current player has lost
