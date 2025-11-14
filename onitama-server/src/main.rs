@@ -6,7 +6,7 @@ use onitama_lib::{
 use rand::random;
 use rand::seq::SliceRandom;
 use rust_query::migration::{schema, Config};
-use rust_query::{Database, FromExpr, LocalClient, TableRow, Transaction, TransactionMut, Update};
+use rust_query::{Database, FromExpr, TableRow, Transaction, Update};
 use std::error::Error;
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -56,9 +56,7 @@ fn main() {
     // map between client ids and the client's `Responder`:
     let mut clients: HashMap<u64, Client> = HashMap::new();
 
-    let mut db_client = LocalClient::try_new().unwrap();
-    let db: Database<Schema> = db_client
-        .migrator(Config::open("db.sqlite"))
+    let db: Database<Schema> = Database::migrator(Config::open("db.sqlite"))
         .unwrap()
         .finish()
         .unwrap();
@@ -86,8 +84,10 @@ fn main() {
                     Message::Text(msg) => println!("{client_id} ==> {msg}"),
                     Message::Binary(_) => println!("{client_id} ==> <binary>"),
                 }
-                let txn = db_client.transaction_mut(&db);
-                if let Err(err) = handle_message(message.clone(), client_id, &mut clients, txn) {
+
+                if let Err(err) = db.transaction_mut(|txn| {
+                    handle_message(message.clone(), client_id, &mut clients, txn)
+                }) {
                     let client = clients.get(&client_id).unwrap();
 
                     let query = match message {
@@ -108,8 +108,8 @@ pub fn handle_message(
     message: Message,
     client_id: u64,
     clients: &mut HashMap<u64, Client>,
-    mut txn: TransactionMut<Schema>,
-) -> Result<(), Box<dyn Error>> {
+    txn: &mut Transaction<Schema>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let client = clients.get_mut(&client_id).unwrap();
 
     let Message::Text(msg) = message else {
@@ -148,7 +148,6 @@ pub fn handle_message(
             index: 0,
         });
 
-        txn.commit();
         return Ok(());
     }
 
@@ -273,11 +272,10 @@ pub fn handle_message(
         _ => return Err("unknown command".into()),
     };
 
-    txn.commit();
     Ok(())
 }
 
-pub fn read_state_msg<'a>(txn: &Transaction<'a, Schema>, m_row: TableRow<'a, Match>) -> StateMsg {
+pub fn read_state_msg<'a>(txn: &Transaction<Schema>, m_row: TableRow<Match>) -> StateMsg {
     let m: Match!(
         create_name,
         join_name,

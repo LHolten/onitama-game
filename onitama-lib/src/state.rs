@@ -64,7 +64,7 @@ impl State {
         card: &str,
         from: X,
         to: X,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let from = from.translate(self.active_eq_red);
         let from = Perspective::range().position(|x| x == from).unwrap();
         let to = to.translate(self.active_eq_red);
@@ -136,7 +136,7 @@ impl std::fmt::Display for NamedField {
 }
 
 impl FromStr for NamedField {
-    type Err = Box<dyn Error>;
+    type Err = Box<dyn Error + Send + Sync>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut chars = s.chars();
