@@ -6,7 +6,7 @@ use onitama_lib::{
 use rand::random;
 use rand::seq::SliceRandom;
 use rust_query::migration::{schema, Config};
-use rust_query::{Database, TableRow, Transaction, Update};
+use rust_query::{Database, TableRow, Transaction};
 use std::error::Error;
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -131,20 +131,24 @@ pub fn handle_message(
             .collect();
 
         txn.insert(Match {
-            match_id,
-            history: "",
-            create_token: blue_token,
-            join_token: red_token,
-            create_name: username,
+            match_id: match_id.clone(),
+            history: "".to_owned(),
+            create_token: blue_token.clone(),
+            join_token: red_token.clone(),
+            create_name: username.to_owned(),
             join_name: None::<String>,
-            create_color: ["red", "blue"].choose(&mut rng).unwrap(),
+            create_color: ["red", "blue"]
+                .choose(&mut rng)
+                .copied()
+                .unwrap()
+                .to_owned(),
             starting_cards: cards.join(","),
         })
         .unwrap();
 
         client.send_msg(LitamaMsg::Create {
-            match_id: match_id.to_string(),
-            token: blue_token.to_string(),
+            match_id: match_id.clone(),
+            token: blue_token.clone(),
             index: 0,
         });
 
@@ -167,13 +171,7 @@ pub fn handle_message(
             }
             let token = m.join_token.clone();
 
-            txn.update_ok(
-                m_row,
-                Match {
-                    join_name: Update::set(Some(username)),
-                    ..Default::default()
-                },
-            );
+            txn.mutable(m_row).join_name = Some(username.to_owned());
 
             client.send_msg(LitamaMsg::Join {
                 match_id: match_id.to_owned(),
@@ -227,19 +225,13 @@ pub fn handle_message(
             let state: State = state.translate();
             state.make_move(card, from, to)?;
 
-            let mut history = m.history.clone();
-            if !history.is_empty() {
-                history.push(',');
+            {
+                let history = &mut txn.mutable(m_row).history;
+                if !history.is_empty() {
+                    history.push(',');
+                }
+                history.push_str(&format!("{card}:{from_to}"));
             }
-            history.push_str(&format!("{card}:{from_to}"));
-
-            txn.update_ok(
-                m.table_row(),
-                Match {
-                    history: Update::set(history),
-                    ..Default::default()
-                },
-            );
 
             client.send_msg(LitamaMsg::Move {
                 match_id: match_id.to_owned(),
